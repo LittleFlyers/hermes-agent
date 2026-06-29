@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>01 · 入口与准备阶段 · Agent 核心循环</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+<a class="back" href="index.html">返回模块导览</a>
+
+<div class="hero">
+  <span class="badge">第 1 篇 / 共 5 篇</span>
+  <h1>入口与准备阶段</h1>
+  <div class="sub">一条用户消息进来,在进入 while 循环之前,Hermes 先做了一大堆「每轮一次」的准备工作。这一篇追踪从 <code>chat()</code> 到循环开始之间发生的一切。</div>
+</div>
+
+<h2 id="entry">两个入口:都是薄转发</h2>
+<p>对外暴露的入口在 <code>run_agent.py</code> 的 <code>AIAgent</code> 类上,但它们<strong>几乎不做事</strong>,只是转发到 <code>agent/conversation_loop.py</code> 的真身:</p>
+<pre><code># run_agent.py
+def chat(self, message, stream_callback=None) -> str:
+    result = self.run_conversation(message, stream_callback=stream_callback)
+    return result["final_response"]          # 只取最终文本
+
+def run_conversation(self, user_message, system_message=None,
+                     conversation_history=None, task_id=None, ...) -> dict:
+    from agent.conversation_loop import run_conversation
+    return run_conversation(self, user_message, ...)   # 转发到真身
+</code></pre>
+<div class="filehint">run_agent.py · AIAgent.chat() / run_conversation()</div>
+<p>区别:<code>chat()</code> 是「省心接口」,只返回最终回答字符串;<code>run_conversation()</code> 返回完整结果字典(含 <code>final_response</code>、<code>messages</code>、<code>api_calls</code> 等)。前端要展示中间过程就用后者。</p>
+<div class="box tip">这正是「窄入口」设计:无论 CLI、网关还是 TUI,都调这同一个 <code>run_conversation()</code>,所以核心逻辑只有一份。</div>
+
+<h2 id="prologue">准备阶段 = build_turn_context</h2>
+<p>进入 <code>conversation_loop.run_conversation()</code> 后,第一件大事是把所有「每轮一次」的准备工作交给一个函数:</p>
+<pre><code># agent/conversation_loop.py
+_ctx = build_turn_context(agent, user_message, system_message,
+                          conversation_history, task_id, ...)
+user_message       = _ctx.user_message
+messages           = _ctx.messages
+active_system_prompt = _ctx.active_system_prompt
+effective_task_id  = _ctx.effective_task_id
+turn_id            = _ctx.turn_id
+_should_review_memory = _ctx.should_review_memory
+_ext_prefetch_cache   = _ctx.ext_prefetch_cache
+# … 循环要用的局部变量都从 _ctx 里取回
+</code></pre>
+<div class="filehint">agent/conversation_loop.py → agent/turn_context.py · build_turn_context()</div>
+<p>为什么要抽出来?因为这段准备逻辑有<strong>上百行</strong>,把它从循环函数里挪走,主循环才看得清。<code>build_turn_context</code> 会<strong>原地修改 <code>agent</code> 对象</strong>(设置一堆 <code>agent._xxx</code> 状态),并返回一个 <code>TurnContext</code> 给循环读回。</p>
+
+<h2 id="order">准备阶段都做了什么(按真实顺序)</h2>
+<p>下面是 <code>build_turn_context</code> 里实际发生的步骤,顺序就是源码顺序:</p>
+<ol class="steps">
+  <li>
+    <h4>MoA 解码 + 安全 stdio</h4>
+    <p>若消息里编码了 MoA(多模型聚合)配置,先解出来;安装安全的 stdout/stderr 包装,防止子进程输出污染。</p>
+  </li>
+  <li>
+    <h4>建会话 DB 行(注意时机)</h4>
+    <p class="where">_ensure_db_session() —— 但延后到 system prompt 就绪后</p>
+    <p>会话行的创建<strong>故意推迟</strong>:如果太早建,<code>system_prompt</code> 列会写成 NULL(Issue #45499)。所以先准备好 prompt,再建行,保证快照非空。</p>
+  </li>
+  <li>
+    <h4>轮次间刷新 MCP 工具</h4>
+    <p>在本轮组装 <code>tools=</code> 之前,刷新一次 MCP 工具列表——这是少数允许「换工具」的安全时机(在轮与轮之间,不是循环中途)。</p>
+  </li>
+  <li>
+    <h4>清洗代理字符(surrogate)</h4>
+    <p>某些模型(经 Ollama 的 Kimi、GLM、Qwen)会返回孤立的 surrogate 字符,导致 <code>json.dumps()</code> 崩溃。这里提前剥掉用户输入里的。</p>
+  </li>
+  <li>
+    <h4>生成 task_id / turn_id,重置一堆重试计数</h4>
+    <p class="where">effective_task_id = task_id or uuid4();turn_id = "session:task:hex"</p>
+    <p><code>task_id</code> 用于隔离并发任务的终端/浏览器会话。随后把本轮所有重试计数器归零(<code>_invalid_tool_retries</code>、<code>_empty_content_retries</code>……)、重置工具守卫。</p>
+  </li>
+  <li>
+    <h4>新建迭代预算</h4>
+    <p class="where">agent.iteration_budget = IterationBudget(agent.max_iterations)</p>
+    <p>每轮一个全新预算对象,这是循环的安全阀(第 2 篇详讲)。</p>
+  </li>
+  <li>
+    <h4>水合 todo 与 nudge 计数</h4>
+    <p>从历史里恢复 todo 列表;统计历史里有多少条 user 消息,据此恢复「该提醒复盘记忆了吗」的周期计数(断点续聊也能正确计数)。</p>
+  </li>
+  <li>
+    <h4>判断是否该提醒复盘记忆</h4>
+    <p class="where">should_review_memory</p>
+    <p><code>_turns_since_memory</code> 累加,达到 <code>_memory_nudge_interval</code> 就置 <code>should_review_memory=True</code> 并清零。这个标志循环结束后用得上。</p>
+  </li>
+  <li>
+    <h4>把用户消息 append 进 messages</h4>
+    <p class="where">messages.append({"role":"user","content":user_message})</p>
+    <p>记录它的下标 <code>current_turn_user_idx</code>,供后续持久化定位。同时保留一份「干净原文」<code>original_user_message</code>(不含 nudge 注入),供转录和记忆查询用。</p>
+  </li>
+  <li>
+    <h4>恢复或构建 System Prompt(缓存关键)</h4>
+    <p class="where">if agent._cached_system_prompt is None: restore_or_build_system_prompt(...)</p>
+    <p><strong>只有当缓存为空时才构建</strong>。一旦建好就缓存在 <code>agent._cached_system_prompt</code>,并持久化到 SessionDB,后续每轮原样复用——这是 prompt 缓存铁律的落点。</p>
+  </li>
+  <li>
+    <h4>崩溃韧性:立即落库</h4>
+    <p class="where">agent._persist_session(messages, conversation_history)</p>
+    <p>会话行一就绪,马上把这条 user 消息写进 SQLite。万一进程崩了,这轮输入不会丢。</p>
+  </li>
+  <li>
+    <h4>预检上下文压缩</h4>
+    <p class="where">if compression_enabled and _should_run_preflight_estimate(...)</p>
+    <p>先用便宜的预检判断是否可能超限,再决定是否做(昂贵的)完整 token 估算与压缩。<strong>这是唯一允许改动历史上下文的地方</strong>。压缩可能新建会话、把 <code>conversation_history</code> 重置为 None。</p>
+  </li>
+  <li>
+    <h4>pre_llm_call 插件钩子 + 外部记忆预取</h4>
+    <p>触发插件的 <code>pre_llm_call</code>(其返回的上下文会拼到 user 消息);若配了外部记忆后端,预取相关片段缓存进 <code>ext_prefetch_cache</code>,供循环里每次调用复用。</p>
+  </li>
+</ol>
+
+<h2 id="ctx">交给循环的「上下文对象」</h2>
+<p>准备完,<code>build_turn_context</code> 返回一个 <code>TurnContext</code>。循环只从它里面取这些值:</p>
+<table>
+<tr><th>字段</th><th>含义</th></tr>
+<tr><td><code>user_message</code></td><td>清洗后的用户消息(可能含 nudge 注入)</td></tr>
+<tr><td><code>original_user_message</code></td><td>干净原文,供转录/记忆查询</td></tr>
+<tr><td><code>messages</code></td><td>本轮的消息列表(已 append 用户消息)</td></tr>
+<tr><td><code>active_system_prompt</code></td><td>本轮生效的 system prompt(缓存的)</td></tr>
+<tr><td><code>effective_task_id</code> / <code>turn_id</code></td><td>任务/轮次唯一标识</td></tr>
+<tr><td><code>should_review_memory</code></td><td>本轮结束后要不要提醒复盘记忆</td></tr>
+<tr><td><code>ext_prefetch_cache</code></td><td>外部记忆预取结果,循环内复用</td></tr>
+</table>
+
+<h2 id="counters">循环开始前的纯局部变量</h2>
+<p>拿回上下文后,<code>run_conversation</code> 再初始化几个<strong>纯局部</strong>计数器(只在循环里用,不挂到 agent 上):</p>
+<pre><code>api_call_count = 0          # 已发起的 API 调用数
+final_response = None        # 最终答复(循环里填)
+interrupted = False          # 是否被用户中断
+failed = False               # 是否失败退出
+compression_attempts = 0     # 循环内压缩尝试次数
+_turn_exit_reason = "unknown"  # 诊断:循环为何结束
+agent._auth_pool_refresh_counts = {}  # 凭证刷新计数,防止 401 空转
+</code></pre>
+<div class="filehint">agent/conversation_loop.py · run_conversation()</div>
+
+<h2 id="takeaway">本篇要点</h2>
+<div class="box">
+<ul>
+<li>入口 <code>chat()</code> / <code>run_conversation()</code> 只是薄转发,真身在 <code>conversation_loop.py</code>。</li>
+<li>所有「每轮一次」的准备都集中在 <code>build_turn_context</code>,它改 <code>agent</code> 状态并返回 <code>TurnContext</code>。</li>
+<li>System prompt <strong>只构建一次、全程缓存</strong>——缓存铁律的实现点。</li>
+<li>用户消息<strong>一进来就落库</strong>,保证崩溃可恢复。</li>
+<li><strong>压缩是唯一允许改历史的环节</strong>,且在进入循环前完成。</li>
+</ul>
+</div>
+
+<div class="docnav">
+  <a href="index.html">
+    <div class="label">返回</div>
+    <div class="title">模块导览</div>
+  </a>
+  <a class="next" href="02-main-loop.html">
+    <div class="label">下一篇</div>
+    <div class="title">主循环机制 →</div>
+  </a>
+</div>
+
+<footer>01 · 入口与准备阶段 · Agent 核心循环 · 仅供本机学习</footer>
+</div>
+<script src="../vscode-links.js"></script>
+<script>
+  const bar = document.getElementById('progress');
+  const onScroll = () => { const h=document.documentElement; const sc=h.scrollTop||document.body.scrollTop;
+    const max=h.scrollHeight-h.clientHeight; bar.style.width=(max>0?(sc/max)*100:0)+'%'; };
+  document.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+</script>
+</body>
+</html>

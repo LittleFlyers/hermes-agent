@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>03 · 调用模型 · Agent 核心循环</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+<a class="back" href="index.html">返回模块导览</a>
+
+<div class="hero">
+  <span class="badge">第 3 篇 / 共 5 篇</span>
+  <h1>调用模型</h1>
+  <div class="sub">循环每一圈的核心动作:把消息发给模型、拿回响应。但「发请求」远不止一行 <code>create()</code>——发之前要对消息做大量清洗,发之后要处理重试与故障转移。这一篇就拆这两件事。</div>
+</div>
+
+<h2 id="shape">整体形状:组装一次,重试多次</h2>
+<pre><code>effective_system = active_system_prompt + ephemeral...    # 组装系统提示
+api_messages = [{"role":"system",...}] + history          # 组装消息(每圈一份新拷贝)
+# … 一连串清洗(见下)…
+
+while retry_count &lt; max_retries:                           # 重试/故障转移循环
+    api_kwargs = agent._build_api_kwargs(api_messages)
+    response = client.chat.completions.create(**api_kwargs) # 真正发请求
+    # 处理 finish_reason / 异常 / 故障转移
+</code></pre>
+<div class="filehint">agent/conversation_loop.py · run_conversation() 循环体内</div>
+<div class="box tip">关键观念:<code>api_messages</code> 是<strong>本圈专用的临时拷贝</strong>,所有清洗都只改它,<strong>绝不动</strong>持久化的 <code>messages</code> / 会话历史。这是缓存铁律和「历史不可变」的实现手段。</div>
+
+<h2 id="prep">发请求前的消息清洗</h2>
+<p>这是本篇的精华。每一圈在调模型前,要对 <code>api_messages</code> 做一长串处理,很多都是<strong>为了缓存命中</strong>和<strong>兼容不同模型</strong>:</p>
+<ol class="steps">
+  <li>
+    <h4>拼接系统提示 + 临时系统提示</h4>
+    <p class="where">effective_system = active_system_prompt + ephemeral_system_prompt</p>
+    <p>缓存的 system prompt 放最前。若有「临时系统提示」(ephemeral),拼在后面——它只在本次 API 调用存在,不进历史。</p>
+  </li>
+  <li>
+    <h4>(可选)MoA 聚合 / prefill 注入</h4>
+    <p>若开了多模型聚合(MoA),把参考模型的产出聚合后拼进最后一条 user 消息;若有 prefill 消息,插在系统提示之后、历史之前。都是「API 调用时才有,不持久化」。</p>
+  </li>
+  <li>
+    <h4>Anthropic 缓存断点</h4>
+    <p class="where">apply_anthropic_cache_control(api_messages, ...)</p>
+    <p>对 Claude 模型(原生 Anthropic / OpenRouter / 兼容网关),注入 <code>cache_control</code> 断点(系统提示 + 最后 3 条消息),多轮对话可省约 75% 输入 token 成本。</p>
+  </li>
+  <li>
+    <h4>清理孤儿工具结果</h4>
+    <p class="where">agent._sanitize_api_messages(api_messages)</p>
+    <p>无条件运行:补齐缺失的工具结果、剥掉没有对应调用的孤儿 tool 消息。防止会话加载或手工改消息后留下不合法结构,被 API 拒绝。</p>
+  </li>
+  <li>
+    <h4>丢弃「只有思考」的助手轮</h4>
+    <p class="where">agent._drop_thinking_only_and_merge_users(api_messages)</p>
+    <p>有 reasoning 但既无可见输出也无 tool_calls 的助手轮会被丢掉,相邻 user 消息合并。防止 Anthropic 报「assistant 消息最后一块不能是 thinking」这类 400。<strong>只改本圈拷贝</strong>,历史里仍保留 reasoning 供 UI 显示。</p>
+  </li>
+  <li>
+    <h4>规范化空白与 tool_call JSON(KV 缓存关键)</h4>
+    <p>把每条 content <code>strip()</code>;把 tool_call 的 arguments 重新 <code>json.dumps(sort_keys=True, 紧凑分隔符)</code>。目的:让<strong>每一轮的前缀逐字节一致</strong>,从而命中本地推理服务器(llama.cpp / vLLM / Ollama)的 KV 缓存,也提高云端缓存命中率。</p>
+  </li>
+  <li>
+    <h4>剥代理字符</h4>
+    <p class="where">_sanitize_messages_surrogates(api_messages)</p>
+    <p>再次剥掉孤立 surrogate,防止 OpenAI SDK 内部 <code>json.dumps()</code> 崩溃(省去 3 次重试)。</p>
+  </li>
+  <li>
+    <h4>估算请求大小 + Ollama 上下文预检</h4>
+    <p>粗估 token 数用于日志;若是 Ollama 且预估请求超过运行时上下文,直接给出友好错误、退还本圈预算、跳出循环(<code>_turn_exit_reason="ollama_runtime_context_too_small"</code>)。</p>
+  </li>
+</ol>
+<div class="box warn">这一串清洗解释了「为什么改一处历史就破坏缓存」:整套机制都建立在<strong>前缀逐字节稳定</strong>之上。任何中途改动历史的操作,都会让后面所有轮的前缀错位,缓存全部失效。</div>
+
+<h2 id="retry">重试与故障转移循环</h2>
+<p>清洗完,进入内层 <code>while retry_count &lt; max_retries</code>。它不只是「失败重发」,还负责<strong>跨提供商故障转移</strong>:</p>
+<ol class="steps">
+  <li>
+    <h4>限流守卫(以 Nous 为例)</h4>
+    <p class="where">agent.nous_rate_guard.nous_rate_limit_remaining()</p>
+    <p>若别的会话已记录该提供商正在限流,<strong>直接跳过这次 API 调用</strong>(每次尝试都会加深限流)。能转移就 <code>_try_activate_fallback()</code> 切到备用提供商并重置重试计数;没有备用就落库并返回友好提示。</p>
+  </li>
+  <li>
+    <h4>为当前提供商重塑 reasoning 字段</h4>
+    <p class="where">agent._reapply_reasoning_echo_for_provider(api_messages)</p>
+    <p><code>api_messages</code> 是按主提供商组装的;中途转移到要求 reasoning_content 的提供商(DeepSeek/Kimi/MiMo)时,在这里幂等地补上,避免发出主提供商形状的陈旧字段。</p>
+  </li>
+  <li>
+    <h4>构建 api_kwargs + 中间件 + 钩子</h4>
+    <p class="where">agent._build_api_kwargs() → apply_llm_request_middleware() → pre_api_request 钩子</p>
+    <p>把消息打包成 SDK 入参;过一遍 LLM 请求中间件(可改 payload、留 trace);触发插件的 <code>pre_api_request</code> 钩子。</p>
+  </li>
+  <li>
+    <h4>真正发请求</h4>
+    <p class="where">client.chat.completions.create(**api_kwargs)</p>
+    <p>拿回 <code>response</code> 和 <code>finish_reason</code>。流式模式下经 stream_callback 逐块回吐(TTS 管线据此提前合成语音)。</p>
+  </li>
+  <li>
+    <h4>按 finish_reason / 异常分流</h4>
+    <p>正常 <code>stop</code> → 交给工具/收尾逻辑;<code>length</code> 截断 → 续写重试;空内容 / 非法 JSON / 截断的 tool_call → 各自的重试计数与策略;网络/限流异常 → 重试或故障转移。</p>
+  </li>
+</ol>
+
+<h2 id="state">重试状态对象</h2>
+<p>这一堆重试不是用零散变量管的,而是集中在 <code>TurnRetryState</code> 和几个 <code>agent._xxx_retries</code> 计数(在准备阶段已归零):</p>
+<table>
+<tr><th>计数</th><th>针对</th></tr>
+<tr><td><code>_invalid_tool_retries</code></td><td>模型调了不存在的工具</td></tr>
+<tr><td><code>_invalid_json_retries</code></td><td>tool_call 参数不是合法 JSON</td></tr>
+<tr><td><code>_empty_content_retries</code></td><td>模型返回空内容</td></tr>
+<tr><td><code>length_continue_retries</code></td><td>响应被 length 截断,续写</td></tr>
+<tr><td><code>compression_attempts</code></td><td>循环内因超限触发的压缩次数</td></tr>
+</table>
+
+<h2 id="takeaway">本篇要点</h2>
+<div class="box">
+<ul>
+<li>消息<strong>组装一次、重试多次</strong>;<code>api_messages</code> 是临时拷贝,清洗只改它。</li>
+<li>发请求前的清洗大多<strong>为缓存命中</strong>(前缀逐字节稳定)和<strong>跨模型兼容</strong>而做。</li>
+<li>Anthropic 缓存断点可省约 75% 输入成本。</li>
+<li>内层循环不只是重试,还承担<strong>跨提供商故障转移</strong>(限流守卫 + fallback)。</li>
+<li>各种异常各有<strong>独立重试计数</strong>,准备阶段统一归零。</li>
+</ul>
+</div>
+
+<div class="docnav">
+  <a href="02-main-loop.html">
+    <div class="label">上一篇</div>
+    <div class="title">← 主循环机制</div>
+  </a>
+  <a class="next" href="04-tool-execution.html">
+    <div class="label">下一篇</div>
+    <div class="title">工具执行 →</div>
+  </a>
+</div>
+
+<footer>03 · 调用模型 · Agent 核心循环 · 仅供本机学习</footer>
+</div>
+<script src="../vscode-links.js"></script>
+<script>
+  const bar = document.getElementById('progress');
+  const onScroll = () => { const h=document.documentElement; const sc=h.scrollTop||document.body.scrollTop;
+    const max=h.scrollHeight-h.clientHeight; bar.style.width=(max>0?(sc/max)*100:0)+'%'; };
+  document.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+</script>
+</body>
+</html>

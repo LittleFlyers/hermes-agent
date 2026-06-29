@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02 · 主循环机制 · Agent 核心循环</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+<a class="back" href="index.html">返回模块导览</a>
+
+<div class="hero">
+  <span class="badge">第 2 篇 / 共 5 篇</span>
+  <h1>主循环机制</h1>
+  <div class="sub">准备就绪后进入 while 循环。这一篇只讲循环本身的「骨架」:它靠什么条件转、靠什么安全退出,以及每一圈开头做的固定动作。具体的「调模型」和「跑工具」留给第 3、4 篇。</div>
+</div>
+
+<h2 id="while">循环条件</h2>
+<pre><code>while (api_call_count &lt; agent.max_iterations
+       and agent.iteration_budget.remaining &gt; 0) \
+      or agent._budget_grace_call:
+    ...
+</code></pre>
+<div class="filehint">agent/conversation_loop.py · run_conversation()</div>
+<p>三个闸门,任意一个挡住就停(除非有 grace):</p>
+<ul>
+<li><code>api_call_count &lt; max_iterations</code> —— 调用次数没到上限(默认 90)。</li>
+<li><code>iteration_budget.remaining &gt; 0</code> —— 迭代预算还有余。</li>
+<li><code>or agent._budget_grace_call</code> —— 即使前两个不满足,只要挂着「宽限」标志,就再放一圈。</li>
+</ul>
+<div class="box tip">为什么有<strong>两个</strong>看起来重复的上限(<code>max_iterations</code> 和 <code>iteration_budget</code>)?因为预算是<strong>跨父子 agent 协调</strong>的:父用 <code>max_iterations</code>(默认 90),每个子 agent 有独立预算(默认 50)。而 <code>execute_code</code> 这类编程式工具调用会<strong>退还</strong>预算,不占额度——这就需要一个能 consume/refund 的独立计数器,而不只是一个简单的 <code>api_call_count</code>。</div>
+
+<h2 id="iteration">每一圈开头的固定动作</h2>
+<p>进入循环体后,在真正调模型之前,每一圈都先做这几件事:</p>
+<ol class="steps">
+  <li>
+    <h4>开启新一圈的检查点去重</h4>
+    <p class="where">agent._checkpoint_mgr.new_turn()</p>
+    <p>重置本轮检查点去重,让这一圈最多只拍一次快照。</p>
+  </li>
+  <li>
+    <h4>检查中断</h4>
+    <p class="where">if agent._interrupt_requested: break</p>
+    <p>用户发了新消息 / 按了 /stop,这里立刻跳出循环,把 <code>interrupted=True</code>、<code>_turn_exit_reason="interrupted_by_user"</code>。<strong>中断检查放在每圈最开头</strong>,保证响应及时。</p>
+  </li>
+  <li>
+    <h4>计数 +1,记活动</h4>
+    <p class="where">api_call_count += 1;agent._touch_activity("starting API call #N")</p>
+    <p><code>_touch_activity</code> 更新「最后活动时间」,供网关的不活动超时监控用。</p>
+  </li>
+  <li>
+    <h4>消费预算 / 消费 grace 标志</h4>
+    <p>若挂着 <code>_budget_grace_call</code>,清掉它(这一圈跑完无论如何都退);否则调 <code>iteration_budget.consume()</code>——返回 False 说明预算用尽,置 <code>_turn_exit_reason="budget_exhausted"</code> 并 break。</p>
+  </li>
+  <li>
+    <h4>触发 step_callback(网关钩子)</h4>
+    <p class="where">agent.step_callback(api_call_count, prev_tools)</p>
+    <p>若设了回调,发出 <code>agent:step</code> 事件(网关用它做进度推送),并附上上一圈的工具调用摘要。</p>
+  </li>
+</ol>
+
+<h2 id="budget">迭代预算:循环的安全阀</h2>
+<p><code>IterationBudget</code> 本身很简单,就是一个<strong>线程安全的计数器</strong>:</p>
+<pre><code># agent/iteration_budget.py
+class IterationBudget:
+    def __init__(self, max_total):
+        self.max_total = max_total
+        self._used = 0
+        self._lock = threading.Lock()
+
+    def consume(self) -> bool:        # 试消费一次,超额返回 False
+        with self._lock:
+            if self._used &gt;= self.max_total:
+                return False
+            self._used += 1
+            return True
+
+    def refund(self):                 # 退还一次(execute_code 用)
+        with self._lock:
+            if self._used &gt; 0:
+                self._used -= 1
+
+    @property
+    def remaining(self):
+        return max(0, self.max_total - self._used)
+</code></pre>
+<div class="filehint">agent/iteration_budget.py</div>
+<table>
+<tr><th>角色</th><th>上限来源</th><th>默认值</th></tr>
+<tr><td>父 agent</td><td><code>max_iterations</code></td><td>90</td></tr>
+<tr><td>子 agent</td><td><code>delegation.max_iterations</code></td><td>50</td></tr>
+</table>
+<p>因为每个子 agent 有<strong>独立预算</strong>,所以「父 + 所有子」的总迭代数可以超过父的 90——这是有意的设计,让委派出去的子任务有自己的预算空间。</p>
+<div class="box tip"><strong>refund 的用处:</strong><code>execute_code</code>(在沙箱里编程式地调工具)的那一圈会被退还,不计入预算。否则一次 <code>execute_code</code> 里跑了 20 个工具,会把额度瞬间烧光。</div>
+
+<h2 id="grace">grace 调用:多给一次机会</h2>
+<p>预算用尽时,Hermes 不是粗暴地直接停,而是可以挂一个 <code>_budget_grace_call</code> 标志,<strong>再放模型一圈</strong>——让它有机会基于已有信息收个尾、给出答复,而不是把对话硬切在半截工具调用上。这一圈跑完,标志被清,循环必然退出。</p>
+
+<h2 id="exit">循环为何退出:_turn_exit_reason</h2>
+<p>循环用一个诊断变量记录「为什么停」,排查问题时很有用:</p>
+<table>
+<tr><th>值</th><th>含义</th></tr>
+<tr><td><code>interrupted_by_user</code></td><td>用户中断(新消息 / /stop)</td></tr>
+<tr><td><code>budget_exhausted</code></td><td>迭代预算用尽</td></tr>
+<tr><td><code>ollama_runtime_context_too_small</code></td><td>Ollama 运行时上下文不够装工具</td></tr>
+<tr><td><code>unknown</code></td><td>初始值 / 正常拿到 final_response 退出</td></tr>
+</table>
+
+<h2 id="flow">控制流一图</h2>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+    A[进入循环体] --> B{中断请求?}
+    B -- 是 --> X[break · interrupted_by_user]
+    B -- 否 --> C[api_call_count++]
+    C --> D{grace 标志?}
+    D -- 是 --> E[清 grace · 本圈后必退]
+    D -- 否 --> F{budget.consume?}
+    F -- False --> Y[break · budget_exhausted]
+    F -- True --> G[step_callback 钩子]
+    E --> G
+    G --> H[组装消息 → 调模型<br/>第 3 篇]
+    H --> I{响应含 tool_calls?}
+    I -- 是 --> J[执行工具 → 回灌<br/>第 4 篇]
+    J --> A
+    I -- 否 --> Z[final_response 设值<br/>跳出循环]
+</pre>
+</div>
+
+<h2 id="takeaway">本篇要点</h2>
+<div class="box">
+<ul>
+<li>循环由<strong>三个闸门</strong>守:调用次数、迭代预算、grace 标志。</li>
+<li><strong>中断检查在每圈最开头</strong>,保证 /stop 及时生效。</li>
+<li>迭代预算是<strong>线程安全计数器</strong>,可 consume/refund;父 90、子 50,各自独立。</li>
+<li><code>execute_code</code> 的迭代会被<strong>退还</strong>,不占预算。</li>
+<li>预算耗尽可触发 <strong>grace 调用</strong>,给模型最后一次收尾机会。</li>
+</ul>
+</div>
+
+<div class="docnav">
+  <a href="01-entry-setup.html">
+    <div class="label">上一篇</div>
+    <div class="title">← 入口与准备阶段</div>
+  </a>
+  <a class="next" href="03-llm-call.html">
+    <div class="label">下一篇</div>
+    <div class="title">调用模型 →</div>
+  </a>
+</div>
+
+<footer>02 · 主循环机制 · Agent 核心循环 · 仅供本机学习</footer>
+</div>
+<script src="../vscode-links.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  try { mermaid.initialize({ startOnLoad:true, theme: dark?'dark':'base',
+    themeVariables: dark?{}:{ primaryColor:'#f5edd6', primaryBorderColor:'#b8860b', primaryTextColor:'#21252b',
+      lineColor:'#b8860b', secondaryColor:'#fffdf6', tertiaryColor:'#fff8c5' } }); } catch(e){}
+  const bar = document.getElementById('progress');
+  const onScroll = () => { const h=document.documentElement; const sc=h.scrollTop||document.body.scrollTop;
+    const max=h.scrollHeight-h.clientHeight; bar.style.width=(max>0?(sc/max)*100:0)+'%'; };
+  document.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+</script>
+</body>
+</html>

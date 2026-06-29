@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent 源码学习 · 总览</title>
+<style>
+  :root {
+    --bg:#fbfaf7; --panel:#ffffff; --fg:#21252b; --muted:#6b7280; --border:#e7e3da;
+    --accent:#b8860b; --accent-soft:#f5edd6; --accent2:#1a6fdc;
+    --code-bg:#f5f3ee; --code-fg:#3b3a36;
+    --warn:#9a6700; --warn-bg:#fff8c5; --ok:#1a7f37; --ok-bg:#dafbe1; --bad:#cf222e; --bad-bg:#ffebe9;
+    --shadow:0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b0e14; --panel:#11161f; --fg:#e6edf3; --muted:#9aa4b2; --border:#222a36;
+            --accent:#e3b341; --accent-soft:#231d10; --accent2:#58a6ff;
+            --code-bg:#0d1117; --code-fg:#c9d1d9;
+            --warn-bg:#2d2a00; --ok-bg:#0f2417; --bad-bg:#2d0f12;
+            --shadow:0 1px 3px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.4); }
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         color:var(--fg); background:
+           radial-gradient(1200px 600px at 100% -5%, var(--accent-soft), transparent 55%),
+           var(--bg);
+         line-height:1.85; font-size:16px; -webkit-font-smoothing:antialiased; }
+  #progress { position:fixed; top:0; left:0; height:3px; width:0;
+              background:linear-gradient(90deg,var(--accent),#e7c869); z-index:99; transition:width .1s; }
+  .container { max-width:1080px; margin:0 auto; padding:40px 24px 90px; }
+
+  .hero { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+          padding:40px 40px 34px; box-shadow:var(--shadow); margin-bottom:32px;
+          background-image:linear-gradient(135deg, var(--accent-soft) 0%, transparent 45%); }
+  .hero .badge { display:inline-block; font-size:12px; font-weight:700; letter-spacing:1px;
+                 color:var(--accent); background:var(--accent-soft); padding:4px 12px; border-radius:20px; text-transform:uppercase; }
+  .hero h1 { margin:14px 0 0; font-size:32px; font-weight:800; letter-spacing:-.5px; }
+  .hero .sub { color:var(--muted); margin-top:12px; font-size:16px; max-width:680px; }
+  .hero .links { margin-top:20px; display:flex; gap:12px; flex-wrap:wrap; }
+  .hero .links a { font-size:14px; font-weight:600; text-decoration:none; padding:8px 16px; border-radius:10px;
+                   border:1px solid var(--border); color:var(--fg); background:var(--panel); transition:all .15s; }
+  .hero .links a:hover { border-color:var(--accent); color:var(--accent2); transform:translateY(-1px); }
+  .hero .links a.primary { background:linear-gradient(135deg,var(--accent),#e7c869); color:#1a1505; border:none; }
+
+  h2 { font-size:23px; font-weight:700; margin:48px 0 18px; letter-spacing:-.3px;
+       display:flex; align-items:center; gap:10px; }
+  h2::before { content:""; width:5px; height:22px; border-radius:3px; background:linear-gradient(180deg,var(--accent),#e7c869); }
+  p { margin:14px 0; }
+  a { color:var(--accent2); }
+  code { background:var(--code-bg); padding:2px 7px; border-radius:6px; font-size:84%; color:var(--code-fg);
+         font-family:"SF Mono",Menlo,Consolas,monospace; border:1px solid var(--border); }
+
+  /* 架构图 */
+  .arch { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+          padding:26px; box-shadow:var(--shadow); margin:18px 0; }
+  .arch .layer { margin:14px 0; }
+  .arch .label { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase;
+                 letter-spacing:.6px; margin-bottom:8px; }
+  .arch .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .chip { flex:1 1 auto; min-width:110px; text-align:center; padding:10px 12px; border-radius:10px;
+          font-size:13.5px; font-weight:600; border:1px solid var(--border); background:var(--bg); }
+  .chip.front { border-color:#7aa7e0; }
+  .chip.core { background:linear-gradient(135deg,var(--accent-soft),transparent); border-color:var(--accent); font-weight:700; }
+  .chip.edge { border-style:dashed; }
+  .arch .arrow { text-align:center; color:var(--muted); font-size:20px; margin:4px 0; }
+
+  /* 模块卡片 */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:18px; margin-top:18px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+          padding:20px 22px; box-shadow:var(--shadow); display:flex; flex-direction:column;
+          transition:transform .15s, box-shadow .15s, border-color .15s; position:relative; overflow:hidden; }
+  .card:hover { transform:translateY(-3px); box-shadow:0 4px 8px rgba(0,0,0,.06),0 16px 40px rgba(0,0,0,.09); border-color:var(--accent); }
+  .card .num { position:absolute; top:14px; right:18px; font-size:38px; font-weight:800;
+               color:var(--accent-soft); line-height:1; }
+  @media (prefers-color-scheme: dark) { .card .num { color:#1c232e; } }
+  .card h3 { margin:0 0 4px; font-size:17px; font-weight:700; }
+  .card .meta { font-size:12px; color:var(--accent); font-weight:600; margin-bottom:10px; }
+  .card p { margin:0 0 14px; font-size:14px; color:var(--muted); line-height:1.7; flex:1; }
+  .card .files { font-size:12px; color:var(--muted); margin-bottom:14px; }
+  .card .files code { font-size:11.5px; }
+  .card .go { font-size:13px; font-weight:700; text-decoration:none; color:var(--accent2); align-self:flex-start; }
+  .card .go.soon { color:var(--accent2); font-weight:700; }
+  .card .go::after { content:" →"; }
+  .card .go.soon::after { content:" →"; }
+
+  table { border-collapse:separate; border-spacing:0; width:100%; margin:18px 0; font-size:14px;
+          background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+          overflow:hidden; box-shadow:var(--shadow); }
+  th,td { padding:11px 15px; text-align:left; border-bottom:1px solid var(--border); }
+  tr:last-child td { border-bottom:none; }
+  th { background:var(--accent-soft); font-weight:700; font-size:13px; }
+  tr:hover { background:var(--code-bg); }
+
+  pre { background:var(--code-bg); padding:18px 20px; border-radius:12px; overflow-x:auto;
+        border:1px solid var(--border); box-shadow:var(--shadow); }
+  pre code { background:none; padding:0; border:none; font-size:13.5px; line-height:1.7; }
+
+  .diagram { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+             padding:22px; box-shadow:var(--shadow); margin:18px 0; overflow-x:auto; text-align:center; }
+  .diagram .mermaid { display:inline-block; min-width:100%; }
+
+  .box { border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; margin:18px 0;
+         background:var(--panel); box-shadow:var(--shadow); }
+  .box.warn { background:linear-gradient(0deg,var(--warn-bg),var(--warn-bg)); border-color:#e6c200; border-left:4px solid var(--warn); }
+  .box.warn::before { content:"⚠ "; font-weight:700; }
+
+  .steps { counter-reset:step; margin:18px 0; padding:0; list-style:none; }
+  .steps > li { position:relative; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+                padding:18px 20px 18px 64px; margin-bottom:14px; box-shadow:var(--shadow); }
+  .steps > li::before { counter-increment:step; content:counter(step); position:absolute; left:18px; top:18px;
+                        width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,var(--accent),#e7c869);
+                        color:#1a1505; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .steps > li h4 { margin:0 0 6px; font-size:16px; font-weight:700; }
+  .steps > li p { margin:6px 0 0; font-size:14px; color:var(--muted); }
+  .steps .where { font-size:12px; color:var(--accent2); font-weight:600; }
+
+  footer { margin-top:60px; color:var(--muted); font-size:13px; border-top:1px solid var(--border); padding-top:20px; }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+
+<div class="hero">
+  <span class="badge">技术架构 · 总览</span>
+  <h1>Hermes Agent 架构导览</h1>
+  <div class="sub">一套 agent 内核,驱动 CLI、消息网关、TUI 与桌面端。本页是整个项目的高层架构总览:先看懂整体设计,再顺着子模块链接深入。</div>
+  <div class="links">
+    <a class="primary" href="#modules">子模块总览</a>
+    <a href="AGENTS.zh.html">开发指南(中文版)</a>
+    <a href="#arch">架构全景</a>
+    <a href="#lifecycle">请求全流程</a>
+    <a href="#path">模块分层</a>
+  </div>
+</div>
+
+<h2 id="what">这是什么项目</h2>
+<p>Hermes 是一个<strong>个人 AI agent</strong>:同一套 agent 内核同时运行在 CLI、消息网关(Telegram、Discord、Slack 等约 20 个平台)、TUI 和 Electron 桌面应用之上。它能跨会话学习(记忆 + 技能)、把任务委派给子 agent、运行定时任务,并驱动真实的终端和浏览器。能力主要通过<strong>插件和技能</strong>扩展,而非不断膨胀内核。</p>
+<p>有两条设计铁律贯穿全局,也是看懂所有取舍的钥匙:</p>
+<table>
+<tr><th>铁律</th><th>含义</th></tr>
+<tr><td>每会话 prompt 缓存神圣不可破</td><td>长会话每轮复用缓存前缀;中途改上下文 / 换工具集 / 重建 system prompt 都会让缓存失效、成本翻倍。唯一例外是上下文压缩。</td></tr>
+<tr><td>内核是「窄腰」,能力在边缘</td><td>每个工具都在每次 API 调用时下发,新增核心工具门槛极高。优先用 CLI 命令+技能、服务门控工具、插件来扩展。</td></tr>
+</table>
+
+<h2 id="arch">架构全景</h2>
+<p>从上到下三层:<strong>前端表面</strong>(用户看到的入口)→ <strong>核心内核</strong>(同一套逻辑)→ <strong>边缘能力</strong>(可插拔扩展)。</p>
+<div class="arch">
+  <div class="layer">
+    <div class="label">前端表面 · 多入口共享同一内核</div>
+    <div class="row">
+      <div class="chip front">CLI<br><small>cli.py</small></div>
+      <div class="chip front">TUI<br><small>ui-tui / tui_gateway</small></div>
+      <div class="chip front">消息网关<br><small>gateway/</small></div>
+      <div class="chip front">桌面端<br><small>apps/desktop</small></div>
+      <div class="chip front">ACP<br><small>acp_adapter/</small></div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="layer">
+    <div class="label">核心内核 · Agent 心脏</div>
+    <div class="row">
+      <div class="chip core">会话循环<br><small>run_agent.py</small></div>
+      <div class="chip core">工具编排<br><small>model_tools.py / tools/registry.py</small></div>
+      <div class="chip core">System Prompt + 缓存<br><small>agent/system_prompt.py</small></div>
+      <div class="chip core">上下文压缩<br><small>agent/context_compressor.py</small></div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="layer">
+    <div class="label">边缘能力 · 可插拔(不碰核心)</div>
+    <div class="row">
+      <div class="chip edge">模型提供商<br><small>providers / plugins/model-providers</small></div>
+      <div class="chip edge">工具集<br><small>tools/*</small></div>
+      <div class="chip edge">记忆<br><small>plugins/memory</small></div>
+      <div class="chip edge">技能<br><small>skills/</small></div>
+      <div class="chip edge">委派子 agent<br><small>tools/delegate_tool.py</small></div>
+      <div class="chip edge">定时 / 看板<br><small>cron / kanban</small></div>
+    </div>
+  </div>
+</div>
+
+<h2 id="lifecycle">请求全生命周期</h2>
+<p>从用户敲下一句话,到拿回最终回答,中间经过了哪些环节?这是理解整个内核的主线。用户发一句话后,Hermes 不是「一问一答」就结束,而是进入一个<strong>多轮工具调用循环</strong>:模型可能先调几个工具(读文件、跑命令、搜网页),拿到结果后再继续思考,直到它认为可以给出最终答复为止。整段过程算<strong>一个请求 / 一轮对话(turn)</strong>。</p>
+
+<h3>时序图:端到端流程</h3>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as 用户 / 前端<br/>(CLI·网关·TUI)
+    participant A as AIAgent<br/>(run_agent.py)
+    participant L as 会话循环<br/>(conversation_loop)
+    participant DB as SessionDB<br/>(会话存储)
+    participant M as 记忆<br/>(memory_manager)
+    participant LLM as 模型<br/>(Provider)
+    participant T as 工具系统<br/>(model_tools·registry)
+
+    U->>A: chat(message) / run_conversation()
+    A->>L: run_conversation(user_message)
+
+    Note over L,DB: 准备阶段(每轮仅一次)
+    L->>DB: 恢复或构建 system prompt(缓存)
+    DB-->>L: 缓存的 system prompt
+    L->>L: 预检压缩 + 持久化用户消息
+
+    loop 工具调用循环<br/>(api_call_count < max_iterations 且预算未尽)
+        L->>L: 检查中断 · api_call_count++
+        opt 记忆预取(可选)
+            L->>M: build_memory_context_block()
+            M-->>L: 临时上下文块<br/>(仅本次调用,不写回历史)
+        end
+        L->>LLM: chat.completions.create(model, messages, tools)
+        LLM-->>L: 响应(文本 或 tool_calls)
+        alt 响应含 tool_calls
+            L->>T: handle_function_call(name, args)
+            T->>T: registry 分发 → 执行工具
+            T-->>L: 结果(JSON 字符串)
+            L->>L: 把 tool 结果 append 进 messages
+            Note over L,LLM: 带着工具结果再问一次模型
+        else 纯文本(无工具)
+            L->>L: final_response = content<br/>跳出循环
+        end
+    end
+
+    Note over L,DB: 收尾阶段
+    L->>DB: 持久化轮次 + 后置钩子 + 后台记忆复盘
+    L-->>A: {final_response, messages, api_calls}
+    A-->>U: 最终响应
+</pre>
+</div>
+<p style="font-size:13px;color:var(--muted)">若图未显示,通常是离线无法加载 Mermaid;下方逐步详解包含全部信息。</p>
+
+<h3>逐步详解</h3>
+<ol class="steps">
+  <li>
+    <h4>前端接收输入 → 调用内核</h4>
+    <p class="where">cli.py / gateway/run.py / tui_gateway → run_agent.py</p>
+    <p>无论来自哪个前端,最终都汇聚到同一个入口:<code>AIAgent.chat()</code> 或 <code>run_conversation()</code>。这就是「一套内核、多个前端」的落点——前端只负责收消息、显示结果。</p>
+  </li>
+  <li>
+    <h4>恢复或构建 System Prompt(缓存关键)</h4>
+    <p class="where">agent/conversation_loop.py · _restore_or_build_system_prompt()</p>
+    <p>同一会话的 system prompt 在第一轮构建后被缓存并持久化到 SessionDB,后续每轮<strong>原样复用</strong>。这正是 prompt 缓存铁律的实现点——绝不中途重建。</p>
+  </li>
+  <li>
+    <h4>预检压缩 + 持久化用户消息</h4>
+    <p class="where">agent/conversation_compression.py · hermes_state.py</p>
+    <p>若历史已接近上下文上限,先做一次压缩(唯一允许改动历史的时机)。然后把用户这条消息写入会话存储,保证崩溃可恢复。</p>
+  </li>
+  <li>
+    <h4>进入工具调用循环</h4>
+    <p class="where">while (api_call_count &lt; max_iterations and budget.remaining &gt; 0)</p>
+    <p>循环开始前先<strong>检查中断</strong>(用户是否按了 /stop),再把调用计数 +1。预算或迭代上限用尽则退出,防止无限循环烧钱。</p>
+  </li>
+  <li>
+    <h4>记忆预取(可选)</h4>
+    <p class="where">agent/memory_manager.py · build_memory_context_block()</p>
+    <p>若启用记忆,这里取回相关历史片段,作为<strong>临时上下文块</strong>拼进本次 API 调用——注意它<em>只在这次调用存在,不写回持久化历史</em>,以免破坏缓存。</p>
+  </li>
+  <li>
+    <h4>调用模型</h4>
+    <p class="where">client.chat.completions.create(model, messages, tools)</p>
+    <p>把消息历史 + 工具 schema 发给模型。返回要么是<strong>纯文本</strong>(模型想直接回答),要么带<strong>tool_calls</strong>(模型想先调工具)。</p>
+  </li>
+  <li>
+    <h4>分支 A:执行工具调用</h4>
+    <p class="where">model_tools.py · handle_function_call() → tools/registry.py</p>
+    <p>若有 tool_calls,逐个(或并发)经 <code>handle_function_call()</code> 分发到注册表,执行真实工具(终端、文件、网页…),结果以 <strong>JSON 字符串</strong>返回,append 进 messages,然后<strong>回到第 4 步再问一次模型</strong>。</p>
+  </li>
+  <li>
+    <h4>分支 B:得到最终答复</h4>
+    <p class="where">final_response = response.content</p>
+    <p>若模型返回纯文本(不再需要工具),把它记为 <code>final_response</code> 并<strong>跳出循环</strong>。</p>
+  </li>
+  <li>
+    <h4>收尾:持久化与后台复盘</h4>
+    <p class="where">agent/turn_finalizer.py · 后置钩子</p>
+    <p>持久化本轮结果,触发后置钩子(插件的 <code>post_llm_call</code> 等),并安排后台的记忆 / 技能复盘(不阻塞返回)。</p>
+  </li>
+  <li>
+    <h4>返回前端 → 显示</h4>
+    <p class="where">return {final_response, messages, api_calls}</p>
+    <p>结果字典回到 <code>chat()</code>,取出 <code>final_response</code> 交给前端渲染。一个请求至此结束。</p>
+  </li>
+</ol>
+
+<h3>为什么是「循环」而不是一问一答</h3>
+<p>关键就在第 4–8 步那个循环。模型一轮里可以连续推理:</p>
+<pre><code>第 1 次调用模型 → 模型说"我要读 a.py"  → 执行 read_file → 结果回灌
+第 2 次调用模型 → 模型说"我要跑测试"   → 执行 terminal  → 结果回灌
+第 3 次调用模型 → 模型说"修好了,这是答复" → 纯文本 → 跳出循环
+</code></pre>
+<p>每次工具结果都会 append 进同一个 <code>messages</code> 列表,再发给模型——所以模型是「带着记忆」连续推理的。<code>max_iterations</code>(默认 90)和迭代预算是安全阀,防止模型陷入死循环。</p>
+
+<h3>流程中的两条铁律</h3>
+<table>
+<tr><th>铁律</th><th>在流程哪一步体现</th></tr>
+<tr><td>prompt 缓存不可破</td><td>第 2 步:system prompt 一次构建、全程复用;第 5 步:记忆块是临时拼接,不写回历史。中途绝不重建上下文。</td></tr>
+<tr><td>消息角色严格交替</td><td>第 6–7 步:user → assistant(tool_calls)→ tool(结果)→ assistant…… 永不连续两条同角色,也不在循环中途塞合成 user 消息。</td></tr>
+</table>
+<div class="box warn">唯一允许改动历史上下文的地方是第 3 步的<strong>压缩</strong>。其余任何环节改历史,都会让缓存失效、成本翻倍。</div>
+
+<h2 id="modules">子模块总览</h2>
+<p>按架构职责拆分为以下模块。每张卡片是一个独立模块,点进去是该模块的逐文件精读文档。</p>
+<div class="grid">
+
+  <div class="card">
+    <div class="num">0</div>
+    <h3>全局认知</h3>
+    <div class="meta">入门 · 架构全貌</div>
+    <p>先建立整体认知:一套内核如何驱动多个前端,两条设计铁律为何如此重要。不碰细节,先看全貌。</p>
+    <div class="files">核心:<code>AGENTS.md</code></div>
+    <a class="go" href="AGENTS.zh.html">开发指南(中文版)</a>
+  </div>
+
+  <div class="card">
+    <div class="num">1</div>
+    <h3>Agent 核心循环</h3>
+    <div class="meta">内核 · 心脏</div>
+    <p>整个项目的心脏:同步的 tool-calling 主循环、迭代预算、中断与重试。看懂它,后面才不是孤立知识点。</p>
+    <div class="files">核心:<code>run_agent.py</code>、<code>agent/conversation_loop.py</code>、<code>agent/turn_context.py</code></div>
+    <a class="go" href="agent/index.html">核心循环精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">2</div>
+    <h3>工具系统</h3>
+    <div class="meta">内核 · 扩展骨架</div>
+    <p>注册、自动发现、分发、可用性检查。理解工具如何从 <code>tools/*.py</code> 一路暴露给模型。</p>
+    <div class="files">核心:<code>tools/registry.py</code>、<code>model_tools.py</code>、<code>toolsets.py</code></div>
+    <a class="go soon" href="02-tools.html">工具系统精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">3</div>
+    <h3>提供商与模型适配</h3>
+    <div class="meta">边缘 · 多后端</div>
+    <p>不同推理后端(Anthropic、Codex、Gemini、Bedrock…)如何统一接入,凭证池与限流如何工作。</p>
+    <div class="files">核心:<code>providers/base.py</code>、<code>agent/*_adapter.py</code>、<code>agent/credential_pool.py</code></div>
+    <a class="go soon" href="03-providers.html">提供商精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">4</div>
+    <h3>System Prompt 与缓存</h3>
+    <div class="meta">内核 · 成本命脉</div>
+    <p>理解「为什么不能中途改上下文」:prompt 如何构建、缓存如何保持、压缩为何是唯一例外。</p>
+    <div class="files">核心:<code>agent/system_prompt.py</code>、<code>agent/prompt_caching.py</code>、<code>agent/context_compressor.py</code></div>
+    <a class="go soon" href="04-prompt-cache.html">缓存机制精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">5</div>
+    <h3>记忆与技能</h3>
+    <div class="meta">边缘 · 跨会话学习</div>
+    <p>记忆提供商如何插拔,技能如何加载与维护,Curator 如何自动归档陈旧技能。</p>
+    <div class="files">核心:<code>agent/memory_manager.py</code>、<code>tools/skills_tool.py</code>、<code>agent/curator.py</code></div>
+    <a class="go soon" href="05-memory-skills.html">记忆与技能精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">6</div>
+    <h3>CLI 与界面层</h3>
+    <div class="meta">前端 · 用户入口</div>
+    <p>交互式 CLI 编排、斜杠命令中央注册表、皮肤引擎,以及 Ink 驱动的 TUI。</p>
+    <div class="files">核心:<code>cli.py</code>、<code>hermes_cli/commands.py</code>、<code>ui-tui/</code></div>
+    <a class="go soon" href="06-cli-ui.html">界面层精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">7</div>
+    <h3>消息网关</h3>
+    <div class="meta">前端 · 多平台接入</div>
+    <p>网关运行时、会话管理、平台适配器模式、两道消息守卫与流式分发。</p>
+    <div class="files">核心:<code>gateway/run.py</code>、<code>gateway/session.py</code>、<code>gateway/platforms/base.py</code></div>
+    <a class="go soon" href="07-gateway.html">网关精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">8</div>
+    <h3>委派与并发</h3>
+    <div class="meta">边缘 · 子 agent</div>
+    <p>如何 spawn 隔离上下文的子 agent,leaf / orchestrator 角色,后台委派与异步完成队列。</p>
+    <div class="files">核心:<code>tools/delegate_tool.py</code>、<code>tools/async_delegation.py</code>、<code>batch_runner.py</code></div>
+    <a class="go soon" href="08-delegation.html">委派精读</a>
+  </div>
+
+  <div class="card">
+    <div class="num">9</div>
+    <h3>调度与多 agent</h3>
+    <div class="meta">边缘 · 自动化</div>
+    <p>Cron 定时任务的 tick 循环与硬中断,Kanban 看板的多 profile 协作与隔离模型。</p>
+    <div class="files">核心:<code>cron/scheduler.py</code>、<code>cron/jobs.py</code>、<code>tools/kanban_tools.py</code></div>
+    <a class="go soon" href="09-cron-kanban.html">调度精读</a>
+  </div>
+
+</div>
+
+<h2 id="path">模块分层</h2>
+<p>按架构职责,上述模块可归为三层。这也对应架构全景图的三个水平层:</p>
+<table>
+<tr><th>架构层</th><th>模块</th><th>职责</th></tr>
+<tr><td>核心内核</td><td>1 · 2 · 4</td><td>会话循环、工具编排、prompt 与缓存——所有前端共享的同一套逻辑。</td></tr>
+<tr><td>边缘能力</td><td>3 · 5 · 8 · 9</td><td>模型提供商、记忆与技能、委派、调度——可插拔,不碰核心。</td></tr>
+<tr><td>前端表面</td><td>6 · 7</td><td>CLI / TUI / 消息网关——用户看到的入口。</td></tr>
+<tr><td>入门</td><td>0</td><td>全局认知与设计铁律。</td></tr>
+</table>
+<p>阅读建议:读大文件先 <code>grep</code> 函数名,从调用入口顺藤摸瓜,不要从头到尾通读。</p>
+
+<footer>Hermes Agent 高层技术架构总览 · 放置于 project-analysis/ · 仅供本机学习</footer>
+</div>
+<script src="vscode-links.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  try {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: dark ? 'dark' : 'base',
+      themeVariables: dark ? {} : {
+        primaryColor: '#f5edd6', primaryBorderColor: '#b8860b', primaryTextColor: '#21252b',
+        lineColor: '#b8860b', actorBkg: '#fffdf6', actorBorder: '#b8860b', noteBkgColor: '#fff8c5', noteBorderColor: '#e6c200'
+      },
+      sequence: { showSequenceNumbers: false, wrap: true, width: 150 }
+    });
+  } catch (e) {}
+
+  const bar = document.getElementById('progress');
+  const onScroll = () => {
+    const h = document.documentElement;
+    const sc = h.scrollTop || document.body.scrollTop;
+    const max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (sc / max) * 100 : 0) + '%';
+  };
+  document.addEventListener('scroll', onScroll, { passive:true });
+  onScroll();
+</script>
+</body>
+</html>
