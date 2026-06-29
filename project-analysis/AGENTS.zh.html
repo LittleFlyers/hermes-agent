@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent 开发指南 · 完整中文版</title>
+<style>
+  :root {
+    --bg:#fbfaf7; --panel:#ffffff; --fg:#21252b; --muted:#6b7280; --border:#e7e3da;
+    --accent:#b8860b; --accent-soft:#f5edd6; --accent2:#1a6fdc;
+    --code-bg:#f5f3ee; --code-fg:#3b3a36;
+    --warn:#9a6700; --warn-bg:#fff8c5; --ok:#1a7f37; --ok-bg:#dafbe1; --bad:#cf222e; --bad-bg:#ffebe9;
+    --shadow:0 1px 3px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b0e14; --panel:#11161f; --fg:#e6edf3; --muted:#9aa4b2; --border:#222a36;
+            --accent:#e3b341; --accent-soft:#231d10; --accent2:#58a6ff;
+            --code-bg:#0d1117; --code-fg:#c9d1d9;
+            --warn-bg:#2d2a00; --ok-bg:#0f2417; --bad-bg:#2d0f12;
+            --shadow:0 1px 3px rgba(0,0,0,.3), 0 8px 30px rgba(0,0,0,.4); }
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         color:var(--fg); background:
+           radial-gradient(1200px 600px at 100% -5%, var(--accent-soft), transparent 55%),
+           var(--bg);
+         line-height:1.85; font-size:16px; -webkit-font-smoothing:antialiased; }
+  .wrap { display:flex; gap:32px; max-width:1300px; margin:0 auto; padding:0 24px; }
+
+  /* ── 侧边导航 ── */
+  nav { position:sticky; top:0; align-self:flex-start; width:260px; height:100vh; overflow-y:auto;
+        padding:28px 8px 40px; font-size:13px; flex-shrink:0; }
+  nav::-webkit-scrollbar { width:8px; }
+  nav::-webkit-scrollbar-thumb { background:var(--border); border-radius:8px; }
+  nav .brand { display:flex; align-items:center; gap:9px; font-weight:800; font-size:15px;
+               color:var(--fg); padding:0 12px 18px; letter-spacing:.3px; }
+  nav .brand .dot { width:10px; height:10px; border-radius:50%;
+                    background:linear-gradient(135deg,var(--accent),#e7c869); box-shadow:0 0 0 4px var(--accent-soft); }
+  nav a { display:block; color:var(--muted); text-decoration:none; padding:5px 12px; border-radius:8px;
+          border-left:2px solid transparent; transition:all .15s; }
+  nav a:hover { color:var(--fg); background:var(--panel); }
+  nav a.active { color:var(--accent2); background:var(--panel); border-left-color:var(--accent);
+                 font-weight:600; box-shadow:var(--shadow); }
+  nav strong { color:var(--muted); display:block; margin:18px 12px 6px; font-size:11px;
+               letter-spacing:1px; text-transform:uppercase; opacity:.8; }
+
+  /* ── 正文 ── */
+  main { flex:1; min-width:0; max-width:880px; padding:40px 8px 80px; }
+
+  .hero { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+          padding:34px 36px; box-shadow:var(--shadow); margin-bottom:14px;
+          background-image:linear-gradient(135deg, var(--accent-soft) 0%, transparent 40%); }
+  .hero h1 { margin:0; border:none; }
+  .hero .sub { color:var(--muted); margin-top:10px; font-size:15px; }
+
+  h1 { font-size:30px; font-weight:800; letter-spacing:-.5px; }
+  h2 { font-size:23px; font-weight:700; margin-top:54px; padding-bottom:10px; letter-spacing:-.3px;
+       border-bottom:1px solid var(--border); scroll-margin-top:20px;
+       display:flex; align-items:center; gap:10px; }
+  h2::before { content:""; width:5px; height:22px; border-radius:3px;
+               background:linear-gradient(180deg,var(--accent),#e7c869); }
+  h3 { font-size:18px; font-weight:700; margin-top:34px; scroll-margin-top:20px; }
+  h4 { font-size:14px; font-weight:700; margin-top:24px; color:var(--accent2);
+       text-transform:none; letter-spacing:.2px; }
+
+  p { margin:14px 0; }
+  a { color:var(--accent2); }
+
+  code { background:var(--code-bg); padding:2px 7px; border-radius:6px; font-size:84%;
+         color:var(--code-fg); font-family:"SF Mono",Menlo,Consolas,monospace;
+         border:1px solid var(--border); }
+  pre { background:var(--code-bg); padding:18px 20px; border-radius:12px; overflow-x:auto;
+        border:1px solid var(--border); box-shadow:var(--shadow); position:relative; }
+  pre code { background:none; padding:0; border:none; font-size:13.5px; line-height:1.7; }
+  pre::-webkit-scrollbar { height:8px; }
+  pre::-webkit-scrollbar-thumb { background:var(--border); border-radius:8px; }
+
+  .pill { display:inline-block; padding:3px 12px; border-radius:20px; font-size:12px; font-weight:700;
+          letter-spacing:.3px; }
+  .want { background:var(--ok-bg); color:var(--ok); } .nope { background:var(--bad-bg); color:var(--bad); }
+
+  blockquote { border:none; margin:0 0 18px; padding:18px 22px; background:var(--panel);
+               border-radius:var(--radius); box-shadow:var(--shadow);
+               border-left:4px solid var(--accent); font-size:15px; }
+
+  .box { border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; margin:18px 0;
+         background:var(--panel); box-shadow:var(--shadow); }
+  .warn { background:linear-gradient(0deg, var(--warn-bg), var(--warn-bg)); border-color:#e6c200;
+          border-left:4px solid var(--warn); }
+  .warn::before { content:"⚠"; font-weight:700; margin-right:8px; }
+
+  table { border-collapse:separate; border-spacing:0; width:100%; margin:18px 0; font-size:14px;
+          background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+          overflow:hidden; box-shadow:var(--shadow); }
+  th,td { padding:11px 15px; text-align:left; vertical-align:top; border-bottom:1px solid var(--border); }
+  tr:last-child td { border-bottom:none; }
+  th { background:var(--accent-soft); font-weight:700; color:var(--fg); font-size:13px;
+       letter-spacing:.3px; }
+  tbody tr:hover, table tr:hover { background:var(--code-bg); }
+
+  ul,ol { padding-left:24px; }
+  li { margin:7px 0; }
+  li::marker { color:var(--accent); }
+
+  footer { margin-top:64px; color:var(--muted); font-size:13px; border-top:1px solid var(--border);
+           padding-top:20px; }
+
+  /* 阅读进度条 */
+  #progress { position:fixed; top:0; left:0; height:3px; width:0;
+              background:linear-gradient(90deg,var(--accent),#e7c869); z-index:99; transition:width .1s; }
+
+  @media (max-width:880px) {
+    nav { display:none; }
+    .wrap { padding:0 16px; }
+    main { padding:24px 0 60px; }
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="wrap">
+<nav>
+  <div class="brand"><span class="dot"></span>Hermes 指南</div>
+  <strong>开篇</strong>
+  <a href="#intro">Hermes 是什么</a>
+  <a href="#two">两条核心属性</a>
+  <strong>贡献准则</strong>
+  <a href="#rubric">准则用法</a>
+  <a href="#balance">把握分寸</a>
+  <a href="#want">想要的</a>
+  <a href="#dontwant">不想要的</a>
+  <a href="#premise">先验证前提</a>
+  <a href="#ladder">开销阶梯</a>
+  <strong>工程基础</strong>
+  <a href="#env">开发环境</a>
+  <a href="#struct">项目结构</a>
+  <a href="#ts">TypeScript 风格</a>
+  <a href="#chain">文件依赖链</a>
+  <strong>核心</strong>
+  <a href="#agent">AIAgent 类</a>
+  <a href="#loop">Agent 循环</a>
+  <a href="#cli">CLI 架构</a>
+  <a href="#slashreg">斜杠命令注册表</a>
+  <a href="#addslash">新增斜杠命令</a>
+  <a href="#tui">TUI 架构</a>
+  <a href="#dash">Dashboard 中的 TUI</a>
+  <a href="#desktop">Electron 桌面端</a>
+  <strong>扩展</strong>
+  <a href="#tools">新增工具</a>
+  <a href="#pin">依赖锁定</a>
+  <a href="#config">配置</a>
+  <a href="#skin">皮肤主题</a>
+  <a href="#plugins">插件</a>
+  <a href="#skills">技能</a>
+  <a href="#toolsets">工具集</a>
+  <strong>系统能力</strong>
+  <a href="#delegate">委派</a>
+  <a href="#curator">Curator</a>
+  <a href="#cron">Cron</a>
+  <a href="#kanban">Kanban</a>
+  <strong>策略与坑</strong>
+  <a href="#policy">重要策略</a>
+  <a href="#profile">Profiles</a>
+  <a href="#pitfall">已知坑</a>
+  <a href="#test">测试</a>
+</nav>
+<main>
+<div class="hero">
+<h1>Hermes Agent 开发指南 · 完整中文版</h1>
+<div class="sub">译自仓库根目录 <code>AGENTS.md</code> · 面向 AI 编码助手与开发者 · 仅供本机学习</div>
+</div>
+<blockquote>本文为仓库根目录 <code>AGENTS.md</code> 的完整中文翻译,面向 AI 编码助手与开发者,供学习与改动 hermes-agent 代码库使用。<br><strong>永远不要在正确的解法上放弃。</strong></blockquote>
+
+<h2 id="intro">Hermes 是什么</h2>
+<p>Hermes 是一个个人 AI agent,同一套 agent 内核同时运行在 CLI、消息网关(Telegram、Discord、Slack 以及约 20 个其他平台)、TUI 和 Electron 桌面应用上。它能跨会话学习(记忆 + 技能)、把任务委派给子 agent、运行定时任务,并驱动真实的终端和浏览器。它的扩展主要依靠<strong>插件和技能</strong>,而非不断膨胀内核。</p>
+<p>有两条根本属性贯穿了几乎每一个设计决策,也是审视任何改动时应有的视角:</p>
+<div class="box"><strong>每会话的 prompt 缓存神圣不可侵犯。</strong> 长期存在的会话每一轮都会复用缓存前缀。任何改动历史上下文、中途切换工具集、或重建 system prompt 的做法都会让缓存失效,使用户成本成倍上升。我们绝不这么做——唯一的例外是上下文压缩。</div>
+<div class="box" id="two"><strong>内核是「窄腰」,能力则生长在边缘。</strong> 我们每新增一个模型工具,它都会在每次 API 调用时被下发,因此新增一个<em>核心</em>工具的门槛极高。绝大多数新能力都应以 CLI 命令 + 技能、服务门控工具或插件的形式落地,而不是直接堆进核心。</p></div>
+
+<h2 id="rubric">贡献准则——准则的用法</h2>
+<p>这是项目的意图层。有两种用法:</p>
+<ol>
+<li><strong>对人类和你自己的工作而言</strong>——什么会被合并、什么会被拒绝,从而让贡献瞄准靶心。</li>
+<li><strong>对自动化审查(triage 清扫器)而言</strong>——指导何时可以按三个允许的理由(<code>implemented_on_main</code>、<code>cannot_reproduce</code>、<code>incoherent</code>)安全关闭 PR,以及同样重要的——何时<strong>不</strong>关闭。基于品味的"我们不想要/超范围"式关闭<strong>不是</strong>自动化决策,那留给人类维护者。清扫器在这里的职责是识别设计意图、<em>避免错误地关闭一个合法贡献</em>,而非自己做出"不实现"的判断。</li>
+</ol>
+
+<h3 id="balance">把握分寸</h3>
+<p>Hermes 的交付量<strong>非常大</strong>——多数合入是针对真实反馈行为的 bug 修复,而产品的覆盖面(平台、渠道、提供商、模型、桌面/TUI 特性)始终在有意识地积极扩张。下面所说的克制只针对一处:<strong>核心 agent + 模型工具 schema</strong>——也就是每一次新增都要在每次 API 调用上持续付费的地方。"最小开销"约束的是<em>一个能力以何种方式接入核心</em>,而<strong>不是</strong>产品能否生长。我们在边缘大胆扩张,在窄腰处保持克制。</p>
+
+<h2 id="want">想要什么</h2>
+<ul>
+<li><strong>把真实 bug 修好。</strong> 大部分合入都是针对真实反馈症状的 <code>fix(...)</code>。一个好的修复能在当前 <code>main</code> 上复现症状,指出它出现的确切行,并修复整个 bug 类别——包括那些同类的调用路径——而不只是报告者刚好撞上的那一处。</li>
+<li><strong>在边缘扩展覆盖面。</strong> 新的平台适配器、渠道、提供商、模型、桌面/TUI/dashboard 特性都受欢迎且经常落地,包括大型改动(新消息渠道、会话上限特性、Windows PTY 桥)。产品的广度本身就是目标,不是开销负担——前提是它接入既有的 setup/config 体验(<code>hermes tools</code>、<code>hermes setup</code>、自动安装),而不是甩出一个裸环境变量。</li>
+<li><strong>把「上帝文件」重构成清爽的模块。</strong> 从 <code>cli.py</code> / <code>run_agent.py</code> / <code>gateway/run.py</code> 中抽出数千行的代码块,拆成职责单一的 mixin 或模块,是受欢迎的工作,哪怕 diff 巨大且机械。"每一行都能追溯到需求"这条标准适用于<em>特性</em> PR;而一个声明为重构的 PR,其需求本身就是这次抽取。</li>
+<li><strong>保持内核窄。</strong> 新<em>模型工具</em>是昂贵的例外——每个工具都在每次 API 调用时下发。优先顺序:扩展现有代码 → CLI 命令+技能 → 服务门控工具(<code>check_fn</code>)→ 插件 → MCP 目录中的服务器 → 新核心工具(最后手段)。</li>
+<li><strong>扩展,而非重复。</strong> 在新增模块/管理器/钩子前,先检查既有基础设施是否已覆盖。当多个 PR 集成同一<em>类别</em>时,设计一个共享接口,而非逐个合并。</li>
+<li><strong>行为契约高于快照。</strong> 测试应断言两份数据必须如何关联(不变量),而非冻结当前值(模型列表、配置版本字面量、枚举计数)。</li>
+<li><strong>端到端验证,而非只有绿色单元 mock。</strong> 凡涉及解析链、配置传播、安全边界、远程后端、文件/网络 I/O 的,用真实路径、真实 import、对临时 <code>HERMES_HOME</code> 演练。Mock 会藏住集成 bug。</li>
+<li><strong>缓存、交替、不变量安全。</strong> 保持 prompt 缓存、严格消息角色交替(绝不连续两条同角色;绝不在循环中途注入合成 user 消息),以及在会话生命周期内字节稳定的 system prompt。</li>
+<li><strong>保留贡献者署名。</strong> 通过 cherry-pick(rebase-merge)救活外部工作,让作者身份在 git 历史中存续;能在别人基础上构建时,不要从零重写。</li>
+</ul>
+
+<h2 id="dontwant">不想要什么(即便做得好也会拒绝)</h2>
+<ul>
+<li><strong>投机式的基础设施。</strong> 没有具体使用方的钩子、回调、扩展点。加一个钩子很容易,但等到插件开始依赖它,再想移除就难了。不过,只要贡献者有真实、明确的用例,即便使用方是另行交付的,这个钩子也不算投机。</li>
+<li><strong>给非密钥配置新增 <code>HERMES_*</code> 环境变量。</strong> <code>.env</code> 只放密钥(API key、token、密码)。所有行为设置——超时、阈值、特性开关、显示偏好——都进 <code>config.yaml</code>。机制需要时可在代码里桥接到内部环境变量,但面向用户的文档指向 <code>config.yaml</code>。拒绝那些让用户"在 .env 里设 X"的 PR,除非 X 是凭证。</li>
+<li><strong>终端+文件已能做到、或本应做成技能时,却新增核心工具。</strong> 如果唯一障碍是远程后端上的文件可见性,修挂载,而非工具集。</li>
+<li><strong>给指令型工具加「偏懒读取」的逃生口。</strong> 不要给那些加载了 agent 必须完整阅读内容的工具(技能、prompt、playbook)加 <code>offset</code>/<code>limit</code> 分页。模型会只读第一页就跳过其余。</li>
+<li><strong>会摧毁它本该保护的特性的"修复"。</strong> 一个杀死了特性初衷的缓解,就是错误的缓解。在限制行为之前,先读原始提交的意图(<code>git log -p -S</code>)。</li>
+<li><strong>无 opt-in 门控的外发遥测/用量归因。</strong> 在通用面向用户的 opt-in(配置门 + setup 提示 + <code>hermes tools</code> 开关)存在前,不加新分析、第三方标识标记或归因标签。打标签停放,不要合并。</li>
+<li><strong>变更探测式测试、中途破缓存、无端到端证明却接线的死代码,以及碰核心文件的插件。</strong> 插件住在自己目录里、在我们提供的 ABC/钩子内工作;插件需要更多就拓宽通用插件表面,别在核心里特例化。</li>
+<li><strong>把第三方产品/别人的项目集成进核心代码树。</strong> 可观测后端、厂商 SaaS 集成、分析面板等"别人家产品"的插件<strong>不</strong>放进本仓 <code>plugins/</code> 下——它们会让我们为一个并不归我们所有的后端背上长期维护负担。这类插件应作为<strong>独立插件仓</strong>,由用户安装到 <code>~/.hermes/plugins/</code>(或通过 pip 入口点),并在 Nous Research Discord(<code>#plugins-skills-and-skins</code>)推广。这是耦合与维护层面的取舍,而非质量评判——插件本身可以很优秀,却依然会被关闭。</li>
+</ul>
+
+<h2 id="premise">在你称之为 bug 前——验证前提(以及何时不要关闭)</h2>
+<p>一个写得很好的 PR 被关闭的最常见原因并不是代码质量,而是它建立在<strong>错误前提</strong>之上,或是把一个<strong>有意的设计</strong>误当成了缺口。下面这些模式是双向的:既告诉人类审查者该重点审视什么,也告诉自动清扫器什么时候该把 PR 留给人类决定。</p>
+<ul>
+<li><strong>"有意设计,不是缺口。"</strong> 一个看似疏忽的限制往往是刻意的。在"修复"缺失链接或限制前,问问这种隔离是否<em>就是</em>设计。例:profiles 是有意独立的岛——一个给它加从默认 profile 实时配置继承的 PR 被关,因为把 profile 耦合在一起正是设计要防的(创建时复制的 <code>--clone</code> 路径已覆盖"从我的默认开始"的合法场景)。在假设某物未完成前,读原始提交意图(<code>git log -p -S "&lt;symbol&gt;"</code>)。</li>
+<li><strong>"前提与 X 的真实工作方式不符。"</strong> PR 的理由常常建立在对既有机制的错误心智模型上。在接受这套理由前,先去追一遍真实代码与运行时行为。两个真实的关闭案例:限流"冷却期内重新探测"的 PR(熔断器只在<em>已确认为空</em>的账号配额桶上跳闸,所谓重探不过是反复敲打一个早已被证明为空的桶);还有一个用量累积的修复,它新加的分支在运行时<strong>根本不会执行</strong>,因为更早的守卫已经把它所依赖的状态弹出了。如果你既指不出 bug 出现的确切行,也证明不了修复改变了那一行的行为,那你就还没验证前提。</li>
+<li><strong>"这个修复本身是错的——那处缺失/省略是刻意为之。"</strong> 补上一个看似缺失的明显部件,可能会破坏这处省略原本在保护的东西。例如:恢复"缺失"的 <code>__init__.py</code> 后,一棵测试树就能作为点分包被导入,从而遮蔽了真正的插件,并在导入时把它的 <code>register()</code> 抹掉。那处缺失其实是不可或缺的。</li>
+<li><strong>"越界/复活了我们已越过的路线。"</strong> 超越已商定基线的范围蔓延,或复活维护者刻意关闭的方向,即便代码能跑也会被拒。把改动保持在实际商定的窄片,其余作为聚焦的后续。</li>
+</ul>
+<p>主线:<strong>在写或合并修复前,对照代码库验证主张<em>和</em>意图。</strong> 当前 <code>main</code> 上确认的复现,加上修复在何处起作用的行级说明,胜过任何听起来合理的理由。对意图存疑时,问比出货更便宜。</p>
+
+<h2 id="ladder">开销阶梯(新增能力时如何决策)</h2>
+<p>越往下的档位,留下的永久开销越大。请选择能正确解决问题的<strong>最高一档</strong>(也就是开销最小的那一档):</p>
+<table>
+<tr><th>档</th><th>方式</th><th>说明</th></tr>
+<tr><td>1</td><td>扩展现有代码</td><td>新能力只是既有功能的一个变体,零新增开销。</td></tr>
+<tr><td>2</td><td>CLI 命令 + 技能</td><td>当配置/状态/基础设施能用 shell 命令表达时,让 agent 在技能引导下执行 <code>hermes &lt;子命令&gt;</code>。对模型工具零开销。订阅、定时任务、服务搭建的首选方案。例:<code>hermes webhook</code>、<code>hermes cron</code>、<code>hermes tools</code>。</td></tr>
+<tr><td>3</td><td>服务门控工具(<code>check_fn</code>)</td><td>需要结构化的参数/返回值,且仅在前置条件配置就绪时才出现,否则零开销。例:Home Assistant 工具(凭 token 门控)、记忆提供商工具。</td></tr>
+<tr><td>4</td><td>插件</td><td>第三方/小众/用户特定能力,不进核心。住在 <code>~/.hermes/plugins/</code> 或 pip 包,运行时发现。</td></tr>
+<tr><td>5</td><td>MCP 服务器(进目录)</td><td>能力确实需要做成工具、但又不属于核心基础时,优先做成 MCP 服务器并加进 MCP 目录。通过内置 MCP 客户端连接;对核心 schema 零永久开销,且任何 MCP host 都能复用。</td></tr>
+<tr><td>6</td><td>新核心工具</td><td>仅当能力是基础的、对几乎所有用户广泛有用、且经终端+文件(或 MCP 服务器)不可达时。正确的核心工具例:terminal、read_file、web_search、browser_navigate。</td></tr>
+</table>
+<p>当有 3 个以上的开放 PR 都想集成同一<em>类别</em>的东西(记忆后端、提供商、通知器)时,不要逐个合并——而应设计一个 ABC + 编排器,把既有的内置实现包装成第一个提供商,再把那些相互竞争的 PR 改造成针对该接口的插件。</p>
+
+<h2 id="env">开发环境</h2>
+<pre><code># 优先 .venv;若你的检出用的是 venv 则退回到它。
+source .venv/bin/activate   # 或:source venv/bin/activate</code></pre>
+<p><code>scripts/run_tests.sh</code> 依次探测 <code>.venv</code> → <code>venv</code> → <code>$HOME/.hermes/hermes-agent/venv</code>(供与主检出共享 venv 的 worktree)。</p>
+
+<h2 id="struct">项目结构</h2>
+<p>文件数量持续变动——别把目录树当详尽。规范来源是文件系统。下面是你实际会编辑的承重入口点。</p>
+<table>
+<tr><th>路径</th><th>作用</th></tr>
+<tr><td><code>run_agent.py</code></td><td>AIAgent 类——核心会话循环(~12k 行)</td></tr>
+<tr><td><code>model_tools.py</code></td><td>工具编排、<code>discover_builtin_tools()</code>、<code>handle_function_call()</code></td></tr>
+<tr><td><code>toolsets.py</code></td><td>工具集定义、<code>_HERMES_CORE_TOOLS</code> 列表</td></tr>
+<tr><td><code>cli.py</code></td><td>HermesCLI 类——交互式 CLI 编排器(~11k 行)</td></tr>
+<tr><td><code>hermes_state.py</code></td><td>SessionDB——SQLite 会话存储(FTS5 搜索)</td></tr>
+<tr><td><code>hermes_constants.py</code></td><td><code>get_hermes_home()</code>、<code>display_hermes_home()</code>——profile 感知路径</td></tr>
+<tr><td><code>hermes_logging.py</code></td><td><code>setup_logging()</code>——agent.log / errors.log / gateway.log</td></tr>
+<tr><td><code>batch_runner.py</code></td><td>并行批处理</td></tr>
+<tr><td><code>agent/</code></td><td>Agent 内部(提供商适配、记忆、缓存、压缩等)</td></tr>
+<tr><td><code>hermes_cli/</code></td><td>CLI 子命令、setup 向导、插件加载器、皮肤引擎</td></tr>
+<tr><td><code>tools/</code></td><td>工具实现——经 <code>tools/registry.py</code> 自动发现</td></tr>
+<tr><td><code>tools/environments/</code></td><td>终端后端(local、docker、ssh、modal、daytona、singularity)</td></tr>
+<tr><td><code>gateway/</code></td><td>消息网关——run.py + session.py + platforms/</td></tr>
+<tr><td><code>gateway/platforms/</code></td><td>每平台一个适配器(telegram、discord、slack、whatsapp、homeassistant、signal、matrix…)</td></tr>
+<tr><td><code>plugins/</code></td><td>插件系统(memory、context_engine、model-providers、kanban、observability、image_gen 等)</td></tr>
+<tr><td><code>optional-skills/</code></td><td>较重/小众、默认不激活的技能</td></tr>
+<tr><td><code>skills/</code></td><td>仓库自带内置技能</td></tr>
+<tr><td><code>ui-tui/</code></td><td>Ink(React)终端 UI——<code>hermes --tui</code></td></tr>
+<tr><td><code>tui_gateway/</code></td><td>TUI 的 Python JSON-RPC 后端</td></tr>
+<tr><td><code>acp_adapter/</code></td><td>ACP 服务器(VS Code / Zed / JetBrains 集成)</td></tr>
+<tr><td><code>cron/</code></td><td>调度器——jobs.py、scheduler.py</td></tr>
+<tr><td><code>scripts/</code></td><td>run_tests.sh、release.py 等</td></tr>
+<tr><td><code>website/</code></td><td>Docusaurus 文档站</td></tr>
+<tr><td><code>tests/</code></td><td>Pytest 套件(截至 2026-05 约 1.7 万测试、~900 文件)</td></tr>
+</table>
+<p><strong>用户配置:</strong> <code>~/.hermes/config.yaml</code>(设置)、<code>~/.hermes/.env</code>(仅 API key)。<br>
+<strong>日志:</strong> <code>~/.hermes/logs/</code>——<code>agent.log</code>(INFO+)、<code>errors.log</code>(WARNING+)、<code>gateway.log</code>(跑网关时)。经 <code>get_hermes_home()</code> profile 感知。用 <code>hermes logs [--follow] [--level ...] [--session ...]</code> 浏览。</p>
+
+<h2 id="ts">TypeScript 风格</h2>
+<p>适用于 Hermes 的所有 TypeScript:桌面、TUI、网站及未来 TS 包。</p>
+<ul>
+<li>当状态被共享、复用或被远端 UI 读取时,优先用小 nanostore 而非组件 state。</li>
+<li>让每个特性拥有自己的 atom。聊天状态挨着聊天,shell 状态挨着 shell,共享状态在 <code>src/store</code>。</li>
+<li>从 atom 渲染的组件应用 <code>useStore</code>。非渲染动作应用 <code>$atom.get()</code> 读取。</li>
+<li>不要把状态穿过三层组件传递,当叶子可订阅 atom 时。</li>
+<li>持久化挨着拥有它的 atom。</li>
+<li>路由根保持薄。它们组合路由与 shell,不应变成控制器。</li>
+<li>不要写巨型 hook。一个 hook 应只管一件窄事。</li>
+<li>优先共置的动作模块而非隐藏的上帝 hook。</li>
+<li>纯副作用回调用简洁 void 形式:<code>onState={st =&gt; void setGatewayState(st)}</code>。</li>
+<li>异步 UI 处理器让意图显式:<code>onClick={() =&gt; void save()}</code>。</li>
+<li>公共 props 与共享对象形状优先 interface。避免对对象 props 用 <code>type X = {…}</code>。</li>
+<li>props 扩展 React 原语:<code>React.ComponentProps&lt;'button'&gt;</code>、<code>Omit&lt;…&gt;</code>、<code>Pick&lt;…&gt;</code>。</li>
+<li>映射 id/路由/视图时,表驱动胜过条件梯。</li>
+<li><code>src/app</code> 拥有路由、页面、页面专属组件;<code>src/store</code> 拥有共享 atom;<code>src/lib</code> 拥有共享纯助手。</li>
+</ul>
+
+<h2 id="chain">文件依赖链</h2>
+<pre><code>tools/registry.py  (无依赖——被所有工具文件导入)
+       ↑
+tools/*.py  (各自在导入时调用 registry.register())
+       ↑
+model_tools.py  (导入 tools/registry + 触发工具发现)
+       ↑
+run_agent.py, cli.py, batch_runner.py, environments/</code></pre>
+
+<h2 id="agent">AIAgent 类(run_agent.py)</h2>
+<p>真实的 <code>AIAgent.__init__</code> 接收约 60 个参数(凭证、路由、回调、会话上下文、预算、凭证池等)。下面是你通常会碰的最小子集——完整列表读 <code>run_agent.py</code>。</p>
+<pre><code>class AIAgent:
+    def __init__(self,
+        base_url=None, api_key=None, provider=None,
+        api_mode=None,              # "chat_completions" | "codex_responses" | ...
+        model="",                   # 空 → 稍后从 config/provider 解析
+        max_iterations=90,          # 工具调用迭代(与子 agent 共享)
+        enabled_toolsets=None, disabled_toolsets=None,
+        quiet_mode=False, save_trajectories=False,
+        platform=None,              # "cli"、"telegram" 等
+        session_id=None,
+        skip_context_files=False, skip_memory=False,
+        credential_pool=None,
+        # … 外加回调、thread/user/chat ID、iteration_budget、fallback_model、
+        # checkpoints 配置、prefill_messages、service_tier、reasoning_config 等
+    ): ...
+
+    def chat(self, message: str) -> str:
+        """简单接口——返回最终响应字符串。"""
+
+    def run_conversation(self, user_message, system_message=None,
+                         conversation_history=None, task_id=None) -> dict:
+        """完整接口——返回含 final_response + messages 的 dict。"""</code></pre>
+
+<h3 id="loop">Agent 循环</h3>
+<p>核心循环在 <code>run_conversation()</code> 内——完全同步,带中断检查、预算追踪、一轮宽限调用:</p>
+<pre><code>while (api_call_count &lt; self.max_iterations and self.iteration_budget.remaining &gt; 0) \
+        or self._budget_grace_call:
+    if self._interrupt_requested: break
+    response = client.chat.completions.create(model=model, messages=messages, tools=tool_schemas)
+    if response.tool_calls:
+        for tool_call in response.tool_calls:
+            result = handle_function_call(tool_call.name, tool_call.args, task_id)
+            messages.append(tool_result_message(result))
+        api_call_count += 1
+    else:
+        return response.content</code></pre>
+<p>消息遵循 OpenAI 格式:<code>{"role": "system/user/assistant/tool", …}</code>。推理内容存于 <code>assistant_msg["reasoning"]</code>。</p>
+
+<h2 id="cli">CLI 架构(cli.py)</h2>
+<ul>
+<li><strong>Rich</strong> 做横幅/面板,<strong>prompt_toolkit</strong> 做带自动补全的输入。</li>
+<li><strong>KawaiiSpinner</strong>(<code>agent/display.py</code>)——API 调用时的动画表情,<code>┊</code> 活动流显示工具结果。</li>
+<li><code>load_cli_config()</code> 合并硬编码默认 + 用户配置 YAML。</li>
+<li><strong>皮肤引擎</strong>(<code>hermes_cli/skin_engine.py</code>)——数据驱动 CLI 主题;启动时从 <code>display.skin</code> 配置键初始化。</li>
+<li><code>process_command()</code> 是 <code>HermesCLI</code> 的方法——经 <code>resolve_command()</code> 在中央注册表解析后,按规范命令名派发。</li>
+<li>技能斜杠命令:<code>agent/skill_commands.py</code> 扫描 <code>~/.hermes/skills/</code>,作为<strong>用户消息</strong>(非 system prompt)注入以保护 prompt 缓存。</li>
+</ul>
+
+<h3 id="slashreg">斜杠命令注册表(hermes_cli/commands.py)</h3>
+<p>所有斜杠命令定义在中央 <code>COMMAND_REGISTRY</code>(<code>CommandDef</code> 对象列表)。每个下游消费者自动派生:</p>
+<ul>
+<li><strong>CLI</strong>——<code>process_command()</code> 经 <code>resolve_command()</code> 解析别名,按规范名派发。</li>
+<li><strong>网关</strong>——<code>GATEWAY_KNOWN_COMMANDS</code> frozenset 用于钩子发射,<code>resolve_command()</code> 用于派发。</li>
+<li><strong>网关帮助</strong>——<code>gateway_help_lines()</code> 生成 <code>/help</code> 输出。</li>
+<li><strong>Telegram</strong>——<code>telegram_bot_commands()</code> 生成 BotCommand 菜单。</li>
+<li><strong>Slack</strong>——<code>slack_subcommand_map()</code> 生成 <code>/hermes</code> 子命令路由。</li>
+<li><strong>自动补全</strong>——<code>COMMANDS</code> 扁平 dict 喂给 <code>SlashCommandCompleter</code>。</li>
+<li><strong>CLI 帮助</strong>——<code>COMMANDS_BY_CATEGORY</code> dict 喂给 <code>show_help()</code>。</li>
+</ul>
+
+<h3 id="addslash">新增一个斜杠命令</h3>
+<ol>
+<li>在 <code>hermes_cli/commands.py</code> 的 <code>COMMAND_REGISTRY</code> 加 <code>CommandDef</code>:
+<pre><code>CommandDef("mycommand", "做什么的描述", "Session",
+           aliases=("mc",), args_hint="[arg]"),</code></pre></li>
+<li>在 <code>cli.py</code> 的 <code>HermesCLI.process_command()</code> 加处理:
+<pre><code>elif canonical == "mycommand":
+    self._handle_mycommand(cmd_original)</code></pre></li>
+<li>若命令在网关可用,在 <code>gateway/run.py</code> 加处理:
+<pre><code>if canonical == "mycommand":
+    return await self._handle_mycommand(event)</code></pre></li>
+<li>持久设置用 <code>cli.py</code> 的 <code>save_config_value()</code>。</li>
+</ol>
+<p><strong>CommandDef 字段:</strong> <code>name</code>(无斜杠规范名)、<code>description</code>、<code>category</code>(Session/Configuration/Tools &amp; Skills/Info/Exit 之一)、<code>aliases</code>(别名元组)、<code>args_hint</code>(参数占位)、<code>cli_only</code>、<code>gateway_only</code>、<code>gateway_config_gate</code>(配置点路径,设在 cli_only 命令上时,配置值为真则该命令在网关可用)。</p>
+<p><strong>加别名</strong>只需在既有 CommandDef 的 <code>aliases</code> 元组里加——无需改其他文件,派发、帮助、Telegram 菜单、Slack 映射、自动补全全部自动更新。</p>
+
+<h2 id="tui">TUI 架构(ui-tui + tui_gateway)</h2>
+<p>TUI 是经典(prompt_toolkit)CLI 的完整替代,经 <code>hermes --tui</code> 或 <code>HERMES_TUI=1</code> 激活。</p>
+<h4>进程模型</h4>
+<pre><code>hermes --tui
+  └─ Node (Ink)  ──stdio JSON-RPC──  Python (tui_gateway)
+       │                                  └─ AIAgent + tools + sessions
+       └─ 渲染 transcript、composer、prompts、activity</code></pre>
+<p>TypeScript 拥有屏幕。Python 拥有会话、工具、模型调用、斜杠命令逻辑。</p>
+<h4>传输</h4>
+<p>stdio 上换行分隔的 JSON-RPC。请求来自 Ink,事件来自 Python。完整方法/事件目录见 <code>tui_gateway/server.py</code>。</p>
+<h4>关键表面</h4>
+<table>
+<tr><th>表面</th><th>Ink 组件</th><th>网关方法</th></tr>
+<tr><td>聊天流</td><td>app.tsx + messageLine.tsx</td><td>prompt.submit → message.delta/complete</td></tr>
+<tr><td>工具活动</td><td>thinking.tsx</td><td>tool.start/progress/complete</td></tr>
+<tr><td>审批</td><td>prompts.tsx</td><td>approval.respond ← approval.request</td></tr>
+<tr><td>会话选择器</td><td>sessionPicker.tsx</td><td>session.list/resume</td></tr>
+<tr><td>斜杠命令</td><td>本地处理 + 透传</td><td>slash.exec → _SlashWorker</td></tr>
+<tr><td>补全</td><td>useCompletion hook</td><td>complete.slash、complete.path</td></tr>
+<tr><td>主题</td><td>theme.ts + branding.tsx</td><td>gateway.ready 带皮肤数据</td></tr>
+</table>
+<h4>斜杠命令流</h4>
+<ol>
+<li>内置客户端命令(<code>/help</code>、<code>/quit</code>、<code>/clear</code>、<code>/resume</code>、<code>/copy</code>、<code>/paste</code> 等)在 <code>app.tsx</code> 本地处理。</li>
+<li>其余 → <code>slash.exec</code>(在持久 <code>_SlashWorker</code> 子进程跑)→ <code>command.dispatch</code> 兜底。</li>
+</ol>
+<pre><code>cd ui-tui
+npm install / npm run dev / npm start / npm run build
+npm run typecheck / npm run lint / npm run fmt / npm test</code></pre>
+
+<h3 id="dash">Dashboard 中的 TUI(hermes dashboard → /chat)</h3>
+<p>dashboard 内嵌真实的 <code>hermes --tui</code>——<strong>不是</strong>重写。见 <code>hermes_cli/pty_bridge.py</code> + <code>web_server.py</code> 的 <code>@app.websocket("/api/pty")</code> 端点。</p>
+<ul>
+<li>浏览器加载 <code>ChatPage.tsx</code>,挂载 xterm.js 的 Terminal(WebGL 渲染器、addon-fit、addon-unicode11)。</li>
+<li><code>/api/pty?token=…</code> 升级为 WebSocket;认证用与 REST 相同的临时 <code>_SESSION_TOKEN</code>,经 query 参数(浏览器无法在 WS 升级时设 Authorization)。</li>
+<li>服务器经 <code>ptyprocess</code>(POSIX PTY——WSL 可用,原生 Windows 不行)spawn <code>hermes --tui</code> 会 spawn 的东西。</li>
+<li>帧:每个方向都是原始 PTY 字节;resize 经 <code>\x1b[RESIZE:&lt;cols&gt;;&lt;rows&gt;]</code> 在服务器拦截,并用 TIOCSWINSZ 应用。</li>
+</ul>
+<div class="box warn"><strong>不要在 React 里重新实现主聊天体验。</strong> 主 transcript、composer/输入流(含斜杠命令行为)、PTY 终端属于内嵌 <code>hermes --tui</code>——你加进 Ink 的东西会自动出现在 dashboard。若发现自己在为 dashboard 重建 transcript 或 composer,停下,改去扩展 Ink。</div>
+<p>围绕 TUI 的结构化 React UI(侧栏小部件、检查器、摘要、状态面板,如 ChatSidebar、ModelPickerDialog)在不构成第二个聊天表面时是允许的。保持其状态独立于 PTY 子进程会话,失败时非破坏性地呈现,让终端窗格不受损地工作。</p>
+
+<h3 id="desktop">Electron 桌面聊天应用(apps/desktop/)</h3>
+<p>这是与经典 CLI 和 dashboard 内嵌 TUI 都<strong>不同</strong>的聊天表面。它是 Electron + React + nanostore 渲染器(<code>@assistant-ui/react</code>),经 JSON-RPC(<code>requestGateway(method, params)</code>)与 <code>tui_gateway</code> 后端对话。WebSocket/JSON-RPC 传输在框架无关的 <code>apps/shared</code> 包(<code>@hermes/shared</code>)里,web dashboard 也消费它;<strong>桌面对 dashboard 前端没有构建/运行时依赖</strong>——它 spawn 一个无头 <code>hermes serve</code> 后端。<code>dashboard</code> 与 <code>serve</code> 共享代码但是独立表面,互不启动。唯一例外是向后兼容回退:桌面 spawn 检测运行时是否注册了 <code>serve</code>,仅当没有时才改写 argv 到旧版 <code>dashboard --no-open</code>,以免新应用对未升级运行时崩在未知子命令上。它<strong>不</strong>内嵌 <code>hermes --tui</code>——有自己的 composer、transcript、斜杠管线。桌面 bug 走 <code>hermes-desktop-app-work</code> 技能,不是 <code>hermes-dashboard-work</code>。</p>
+<p><strong>桌面斜杠命令在客户端策划,再派发给后端。</strong></p>
+<ul>
+<li><strong>后端已提供一切。</strong> <code>tui_gateway/server.py</code> 的 <code>commands.catalog</code> 和 <code>complete.slash</code> 都含内置命令、用户 <code>quick_commands</code>、技能派生命令。桌面不需要新 RPC 看技能。</li>
+<li><strong>渲染器通过 <code>desktop-slash-commands.ts</code> 策划。</strong> 这是关键的承载文件,含 <code>DESKTOP_COMMANDS</code>(面板里展示的 ~19 个内置)及终端专属/消息专属/选择器拥有/设置拥有/高级命令的屏蔽列表。
+  <ul>
+  <li><code>isDesktopSlashCommand(name)</code>——门控<strong>执行</strong>。对内置和任何非内置(技能/快捷命令)都返回 true,让输入的扩展命令能跑。</li>
+  <li><code>isDesktopSlashSuggestion(name)</code>——门控<strong>发现/补全</strong>。</li>
+  <li><code>isDesktopSlashExtensionCommand(name)</code>——当命令不是已知 Hermes 内置(即技能或用户快捷命令)时为 true。两条路径都放扩展通过,让技能命令浮现在面板。</li>
+  </ul></li>
+<li><strong>派发</strong>在 <code>use-prompt-actions.ts</code>(<code>runSlash</code>):桌面拥有的内置本地处理或经 <code>commands.catalog</code>;其余去 <code>slash.exec</code>,兜底到 <code>command.dispatch</code>。技能命令解析为 <code>{type:"skill", message}</code> 作为普通 prompt 提交。</li>
+</ul>
+<div class="box"><strong>规则:</strong>桌面斜杠面板的策划是关于隐藏噪音(终端/消息专属内置),<strong>不是</strong>隐藏用户激活的扩展。技能命令和 <code>quick_commands</code> 属于补全。测试:<code>desktop-slash-commands.test.ts</code>。</div>
+
+<h2 id="tools">新增工具</h2>
+<p>新增任何工具前,先把开销问题想清楚(见「开销阶梯」):绝大多数能力<strong>不</strong>该做成核心工具。自定义或仅本地使用的工具<strong>不要</strong>去改 Hermes 核心,请走插件路线:建 <code>~/.hermes/plugins/&lt;name&gt;/plugin.yaml</code> 和 <code>__init__.py</code>,用 <code>ctx.register_tool(...)</code> 注册。</p>
+<p>只有当用户明确要贡献一个该随基础系统一起发布的新核心工具时,才用下面的内置路线。核心工具需改 <strong>2 个文件</strong>:</p>
+<h4>1. 建 tools/your_tool.py</h4>
+<pre><code>import json, os
+from tools.registry import registry
+
+def check_requirements() -> bool:
+    return bool(os.getenv("EXAMPLE_API_KEY"))
+
+def example_tool(param, task_id=None) -> str:
+    return json.dumps({"success": True, "data": "..."})
+
+registry.register(
+    name="example_tool",
+    toolset="example",
+    schema={"name": "example_tool", "description": "...", "parameters": {...}},
+    handler=lambda args, **kw: example_tool(param=args.get("param",""), task_id=kw.get("task_id")),
+    check_fn=check_requirements,
+    requires_env=["EXAMPLE_API_KEY"],
+)</code></pre>
+<h4>2. 加进 toolsets.py</h4>
+<p>加进 <code>_HERMES_CORE_TOOLS</code>(所有平台)或新工具集。<strong>此步必需:</strong>自动发现会导入工具并注册 schema,但工具只有当其名出现在某工具集时才<em>暴露给 agent</em>。<code>_HERMES_CORE_TOOLS</code> 不是死代码——它是每个平台基础工具集继承的默认包。</p>
+<p>自动发现:任何含顶层 <code>registry.register()</code> 调用的 <code>tools/*.py</code> 自动导入。所有 handler 必须返回 JSON 字符串。schema 描述提及路径时用 <code>display_hermes_home()</code> 使其 profile 感知;持久状态用 <code>get_hermes_home()</code>。agent 级工具(todo、memory)在 <code>handle_function_call()</code> 前被 run_agent.py 拦截。</p>
+
+<h2 id="pin">依赖锁定策略</h2>
+<p>所有依赖必须有上界以限制供应链攻击面。该策略在 litellm 入侵后确立,在 Mini Shai-Hulud 蠕虫后强化。</p>
+<table>
+<tr><th>来源类型</th><th>处理</th><th>例</th></tr>
+<tr><td>PyPI 包</td><td><code>&gt;=floor,&lt;next_major</code></td><td><code>"httpx&gt;=0.28.1,&lt;1"</code></td></tr>
+<tr><td>Git URL</td><td>提交 SHA</td><td><code>git+https://...@&lt;40 字符 sha&gt;</code></td></tr>
+<tr><td>GitHub Actions</td><td>提交 SHA + 注释</td><td><code>uses: actions/checkout@&lt;sha&gt;  # v4</code></td></tr>
+<tr><td>仅 CI 的 pip</td><td><code>==精确</code></td><td><code>pyyaml==6.0.2</code></td></tr>
+</table>
+<p>新增依赖时:post-1.0 锁 <code>&gt;=当前,&lt;下一主版本</code>;pre-1.0 用 <code>&lt;0.(当前次版本+2)</code>;绝不提交无上界的裸 <code>&gt;=X.Y.Z</code>;跑 <code>uv lock</code> 重生成带 hash 的 <code>uv.lock</code>。</p>
+
+<h2 id="config">新增配置</h2>
+<h4>config.yaml 选项</h4>
+<ol>
+<li>加进 <code>hermes_cli/config.py</code> 的 <code>DEFAULT_CONFIG</code>。</li>
+<li>仅当需主动迁移/转换既有用户配置(改键名、改结构)时才 bump <code>_config_version</code>。给既有 section 加新键由深合并自动处理,<strong>不需</strong>版本 bump。</li>
+</ol>
+<p><strong>顶层 section(非详尽):</strong> model、agent、terminal、compression、display、stt、tts、memory、security、delegation、smart_model_routing、checkpoints、auxiliary、curator、skills、gateway、logging、cron、profiles、plugins、honcho。</p>
+<p><code>auxiliary</code> 放副 LLM 工作(curator、vision、embedding、标题生成等)的每任务覆盖。<code>curator</code> 放后台技能维护配置。</p>
+<h4>.env 变量(仅密钥——API key、token、密码)</h4>
+<pre><code>"NEW_API_KEY": {
+    "description": "用途",
+    "prompt": "显示名",
+    "url": "https://...",
+    "password": True,
+    "category": "tool",  # provider, tool, messaging, setting
+},</code></pre>
+<p>非密钥设置(超时、阈值、特性开关、路径、显示偏好)归 <code>config.yaml</code>。</p>
+<h4>配置加载器(三条路径)</h4>
+<table>
+<tr><th>加载器</th><th>用于</th><th>位置</th></tr>
+<tr><td><code>load_cli_config()</code></td><td>CLI 模式</td><td>cli.py</td></tr>
+<tr><td><code>load_config()</code></td><td>hermes tools/setup 等子命令</td><td>hermes_cli/config.py</td></tr>
+<tr><td>直接 YAML 加载</td><td>网关运行时</td><td>gateway/run.py + config.py</td></tr>
+</table>
+<p><strong>工作目录:</strong>CLI 用进程当前目录;消息端用 <code>config.yaml</code> 的 <code>terminal.cwd</code>(桥接到 <code>TERMINAL_CWD</code> 环境变量)。<code>MESSAGING_CWD</code> 已移除。</p>
+
+<h2 id="skin">皮肤/主题系统</h2>
+<p>皮肤引擎(<code>hermes_cli/skin_engine.py</code>)提供数据驱动的 CLI 视觉定制。皮肤是<strong>纯数据</strong>——加新皮肤无需改码。</p>
+<ul>
+<li><code>init_skin_from_config()</code>——CLI 启动时调用,读 <code>display.skin</code>。</li>
+<li><code>get_active_skin()</code> / <code>set_active_skin(name)</code> / <code>load_skin(name)</code>——先用户皮肤,再内置,再回退 default。</li>
+<li>缺失值自动从 default 继承。</li>
+</ul>
+<p><strong>皮肤可定制:</strong>横幅边框/标题/强调/暗文/正文、响应框边框、spinner 表情(waiting/thinking)、动词、wings、工具前缀、每工具 emoji、agent 名、欢迎语、响应框标签、prompt 符号。</p>
+<p><strong>内置皮肤:</strong>default(经典金色 kawaii)、ares(深红铜战神)、mono(灰阶单色)、slate(冷蓝开发向)。</p>
+<p>加内置皮肤:加进 <code>_BUILTIN_SKINS</code> dict。用户皮肤:建 <code>~/.hermes/skins/&lt;name&gt;.yaml</code>,经 <code>/skin &lt;name&gt;</code> 或 <code>display.skin</code> 激活。</p>
+
+<h2 id="plugins">插件</h2>
+<p>Hermes 有两个插件表面,都住在仓库 <code>plugins/</code> 下,与用户安装的 <code>~/.hermes/plugins/</code> 及 pip 入口点一同被发现。</p>
+<h4>通用插件(hermes_cli/plugins.py + plugins/&lt;name&gt;/)</h4>
+<p><code>PluginManager</code> 从 <code>~/.hermes/plugins/</code>、<code>./.hermes/plugins/</code> 及 pip 入口点发现。每个插件暴露 <code>register(ctx)</code>,可:注册 Python 回调生命周期钩子(<code>pre_tool_call</code>、<code>post_tool_call</code>、<code>pre/post_llm_call</code>、<code>on_session_start/end</code>);经 <code>ctx.register_tool(...)</code> 注册新工具;经 <code>ctx.register_cli_command(...)</code> 注册 CLI 子命令。</p>
+<div class="box warn"><strong>发现时机坑:</strong><code>discover_plugins()</code> 仅作为导入 <code>model_tools.py</code> 的副作用运行。不导入 model_tools 就读插件状态的路径必须显式调用它(幂等)。</div>
+<h4>记忆提供商插件(plugins/memory/&lt;name&gt;/)</h4>
+<p>可插拔记忆后端的独立发现系统。当前内置:honcho、mem0、supermemory、byterover、hindsight、holographic、openviking、retaindb。各实现 <code>MemoryProvider</code> ABC,由 <code>agent/memory_manager.py</code> 编排。生命周期钩子:<code>sync_turn</code>、<code>prefetch</code>、<code>shutdown</code>、可选 <code>post_setup</code>。</p>
+<div class="box warn"><strong>规则(Teknium,2026-05):</strong>插件<strong>禁止</strong>修改核心文件(run_agent.py、cli.py、gateway/run.py、main.py 等)。插件需要框架未暴露的能力,就拓宽通用插件表面(新钩子、新 ctx 方法),绝不在核心硬编码插件专属逻辑。<strong>无内树新记忆提供商(2026-05)</strong>、<strong>无内树新第三方产品插件(2026-06)</strong>——作为独立插件仓发布。</div>
+<h4>模型提供商插件(plugins/model-providers/&lt;name&gt;/)</h4>
+<p>每个推理后端(openrouter、anthropic、gmi、deepseek、nvidia…)都作为插件发布。各 <code>__init__.py</code> 在加载时调用 <code>register_provider(ProviderProfile(...))</code>。<code>_discover_providers()</code> 是一个<strong>懒加载、独立</strong>的发现系统,首次调用 <code>get_provider_profile()</code> 或 <code>list_providers()</code> 时才扫描。扫描顺序:仓库内置 → 用户 → 旧版 <code>providers/&lt;name&gt;.py</code>。同名的用户插件会覆盖内置的(后注册者胜出)。</p>
+
+<h2 id="skills">技能</h2>
+<p>两个并行表面:<code>skills/</code>(默认可加载内置技能,按类别目录组织)与 <code>optional-skills/</code>(较重/小众,经 <code>hermes skills install official/&lt;category&gt;/&lt;skill&gt;</code> 显式安装)。</p>
+<h4>SKILL.md frontmatter</h4>
+<p>标准字段:<code>name</code>、<code>description</code>、<code>version</code>、<code>author</code>、<code>license</code>、<code>platforms</code>(OS 门控)、<code>metadata.hermes.tags/category/related_skills/config</code>。</p>
+<h4>技能创作标准(硬线)</h4>
+<ol>
+<li><strong><code>description</code> ≤ 60 字符,一句话,以句号结尾。</strong> 陈述能力而非实现,无营销词,不重复技能名。</li>
+<li><strong>SKILL.md 正文引用的工具须是原生 Hermes 工具或 MCP 服务器。</strong> 用反引号点名(<code>terminal</code>、<code>read_file</code>、<code>patch</code>、<code>search_files</code> 等)。不要点 agent 已经包装好的 shell 工具(grep→search_files,cat→read_file,sed→patch,find→search_files)。</li>
+<li><strong><code>platforms:</code> 门控须对照脚本实际 import 审计。</strong> 用 POSIX 专属原语(fcntl、termios、os.setsid、/proc 等)须声明平台。优先跨平台修复。</li>
+<li><strong><code>author</code> 先署人类贡献者。</strong> 外部贡献署真名 + GitHub handle 在前,"Hermes Agent"次之。</li>
+<li><strong>SKILL.md 正文用现代章节序:</strong>标题、2-3 句意图、When to Use、Prerequisites、How to Run、Quick Reference、Procedure、Pitfalls、Verification。复杂技能 ~200 行,简单 ~100 行。</li>
+<li><strong>脚本进 <code>scripts/</code>,引用进 <code>references/</code>,模板进 <code>templates/</code>。</strong> 别让模型每次内联写解析器。</li>
+<li><strong>测试在 <code>tests/skills/test_&lt;skill&gt;_skill.py</code></strong>,仅用 stdlib + pytest + mock,无网络。</li>
+<li><strong><code>.env.example</code> 新增隔离在清晰分隔块。</strong> 别碰周围文件。</li>
+</ol>
+
+<h2 id="toolsets">工具集</h2>
+<p>全部工具集定义在 <code>toolsets.py</code> 的单个 <code>TOOLSETS</code> dict。每平台适配器选一个基础工具集(如 Telegram 用 <code>"messaging"</code>);<code>_HERMES_CORE_TOOLS</code> 是多数平台继承的默认包。</p>
+<p>当前键:browser、clarify、code_execution、cronjob、debugging、delegation、discord、discord_admin、feishu_doc、feishu_drive、file、homeassistant、image_gen、kanban、memory、messaging、moa、rl、safe、search、session_search、skills、spotify、terminal、todo、tts、video、vision、web、yuanbao。</p>
+<p>经 <code>hermes tools</code>(curses UI)或 config 的 <code>tools.&lt;platform&gt;.enabled/disabled</code> 列表逐平台开关。</p>
+
+<h2 id="delegate">委派(delegate_task)</h2>
+<p><code>tools/delegate_tool.py</code> spawn 一个带隔离上下文 + 终端会话的子 agent。默认父等子摘要再继续。<code>background=true</code> 时立即返回委派 id,结果稍后经异步完成队列重入会话。</p>
+<p><strong>两种形态:</strong>单个任务传 <code>goal</code>(可选附带 context、toolsets);批量(并行)则传 <code>tasks:[...]</code>,每个任务都获得独立的并发子 agent,并发数由 <code>delegation.max_concurrent_children</code>(默认 3)限制。</p>
+<p><strong>角色:</strong><code>role="leaf"</code>(默认)是职责聚焦的工作者,不能调用 delegate_task/clarify/memory/send_message/execute_code;<code>role="orchestrator"</code> 保留 delegate_task,可自己再 spawn 子 agent,由 <code>orchestrator_enabled</code>(默认 true)门控、<code>max_spawn_depth</code>(默认 2)限定深度。</p>
+<p><strong>耐久规则:</strong>后台 delegate_task 虽然脱离了当前轮,但仍然只在本进程内。需要在进程重启后仍能存活的工作,请用 <code>cronjob</code> 或 <code>terminal(background=True, notify_on_complete=True)</code>。</p>
+
+<h2 id="curator">Curator(技能生命周期)</h2>
+<p>后台技能维护系统,追踪 agent 自建技能用量并自动归档陈旧者。用户永不丢技能;归档进 <code>~/.hermes/skills/.archive/</code>,可恢复。</p>
+<ul>
+<li><strong>核心:</strong><code>agent/curator.py</code>(审查循环、自动转换、LLM 审查 prompt)+ <code>agent/curator_backup.py</code>(运行前 tar.gz 快照)。</li>
+<li><strong>CLI:</strong><code>hermes curator &lt;verb&gt;</code>——status、run、pause、resume、pin、unpin、archive、restore、prune、backup、rollback。</li>
+<li><strong>遥测:</strong><code>tools/skill_usage.py</code> 拥有 <code>.usage.json</code>——use_count、view_count、patch_count、last_activity_at、state、pinned。</li>
+</ul>
+<p><strong>不变量:</strong>仅碰 <code>created_by: "agent"</code> 的技能;从不删除,最大破坏动作是归档;pinned 技能免于所有自动转换与 LLM 审查;<code>skill_manage(action="delete")</code> 拒绝 pinned。</p>
+
+<h2 id="cron">Cron(定时任务)</h2>
+<p><code>cron/jobs.py</code>(任务存储)+ <code>cron/scheduler.py</code>(tick 循环)。agent 经 <code>cronjob</code> 工具排程;用户经 <code>hermes cron &lt;verb&gt;</code> 或 <code>/cron</code> 斜杠命令。</p>
+<p><strong>排程格式:</strong>时长(<code>"30m"</code>、<code>"2h"</code>、<code>"1d"</code>)、"every" 短语(<code>"every 2h"</code>、<code>"every monday 9am"</code>)、5 字段 cron 表达式(<code>"0 9 * * *"</code>)、ISO 时间戳(一次性)。</p>
+<p><strong>每任务字段:</strong>skills、model/provider 覆盖、script(预运行数据采集脚本,stdout 注入 prompt)、context_from(链接任务输出)、workdir、多平台投递。</p>
+<p><strong>硬化不变量:</strong>cron 会话 3 分钟硬中断;catchup 窗口为任务周期一半(120s–2h);grace 窗口 120s;文件锁 <code>~/.hermes/cron/.tick.lock</code> 防重复 tick;默认 <code>skip_memory=True</code>。cron 投递<strong>不</strong>镜像进目标网关会话,落在自己的 cron 会话以保持消息角色交替。</p>
+
+<h2 id="kanban">Kanban(多 agent 工作队列)</h2>
+<p>SQLite 支撑的耐久看板,让多个 profile/worker 协作共享任务。用户经 <code>hermes kanban &lt;verb&gt;</code> 驱动;worker 经专用 <code>kanban_*</code> 工具集驱动(不在任务内时零 schema 脚印)。</p>
+<ul>
+<li><strong>CLI:</strong><code>hermes kanban</code> 含 init、create、list、show、assign、link、comment、complete、block、archive、tail 等。</li>
+<li><strong>Worker 工具集:</strong>kanban_show、kanban_complete、kanban_block、kanban_heartbeat、kanban_comment、kanban_create、kanban_link。</li>
+<li><strong>Dispatcher:</strong>长寿循环(默认每 60s),回收陈旧 claim、提升就绪任务、原子 claim、spawn 指派 profile。默认网关内跑(<code>kanban.dispatch_in_gateway: true</code>)。</li>
+</ul>
+<p><strong>隔离模型:</strong>board 是硬边界(worker 用 <code>HERMES_KANBAN_BOARD</code> 钉死);tenant 是 board 内软命名空间。同任务连续 <code>failure_limit</code>(默认 2)次非成功后,dispatcher 自动 block 防自旋。</p>
+
+<h2 id="policy">重要策略</h2>
+<div class="box warn"><strong>Prompt 缓存不可破。</strong> 不要改动历史上下文、不要中途换工具集、不要中途重载记忆或重建 system prompt。破缓存大幅抬高成本。唯一改动上下文的时机是上下文压缩。改 system-prompt 状态的斜杠命令须缓存感知:默认延迟失效(下会话生效),opt-in <code>--now</code> 立即失效。</div>
+<h4>后台进程通知(网关)</h4>
+<p><code>terminal(background=true, notify_on_complete=true)</code> 时,网关跑 watcher 检测完成并触发新轮。经 <code>display.background_process_notifications</code> 控制详细度:<code>all</code>(运行输出+最终)、<code>result</code>(仅最终)、<code>error</code>(仅退出码≠0)、<code>off</code>(无)。</p>
+
+<h2 id="profile">Profiles:多实例支持</h2>
+<p>Hermes 支持 profiles——多个完全隔离的实例,各有自己的 <code>HERMES_HOME</code>。核心机制:<code>main.py</code> 的 <code>_apply_profile_override()</code> 在任何模块导入前设 <code>HERMES_HOME</code>。</p>
+<ol>
+<li><strong>所有 HERMES_HOME 路径用 <code>get_hermes_home()</code>。</strong> 绝不硬编码 <code>~/.hermes</code>。</li>
+<li><strong>面向用户消息用 <code>display_hermes_home()</code>。</strong></li>
+<li><strong>模块级常量可以</strong>——它们在导入时缓存,那已在 profile 覆盖之后。</li>
+<li><strong>mock <code>Path.home()</code> 的测试须同设 <code>HERMES_HOME</code>。</strong></li>
+<li><strong>网关平台适配器应用 token 锁</strong>——以唯一凭证连接时,在 connect/start 调 <code>acquire_scoped_lock()</code>,在 disconnect/stop 调 <code>release_scoped_lock()</code>。</li>
+<li><strong>Profile 操作锚 HOME 而非 HERMES_HOME</strong>——<code>_get_profiles_root()</code> 返回 <code>Path.home()/".hermes"/"profiles"</code>,让 <code>hermes -p coder profile list</code> 无论哪个 profile 活动都能看到全部。</li>
+</ol>
+
+<h2 id="pitfall">已知坑</h2>
+<ul>
+<li><strong>别硬编码 <code>~/.hermes</code> 路径。</strong> 代码路径用 <code>get_hermes_home()</code>,用户消息用 <code>display_hermes_home()</code>。硬编码破坏 profiles(PR #3575 修了 5 个此类 bug)。</li>
+<li><strong>别引入新 <code>simple_term_menu</code> 用法。</strong> 用 curses(stdlib),因前者在 tmux/iTerm2 有幽灵重影 bug。见 <code>hermes_cli/tools_config.py</code>。</li>
+<li><strong>spinner/显示代码别用 <code>\033[K</code>(ANSI 擦到行尾)。</strong> 在 prompt_toolkit 的 patch_stdout 下会漏成字面 <code>?[K</code>。用空格填充 <code>f"\r{line}{' ' * pad}"</code>。</li>
+<li><strong><code>_last_resolved_tool_names</code> 是 model_tools.py 的进程全局。</strong> <code>_run_single_child()</code> 在子 agent 执行前后保存/恢复它,子运行期间可能暂时陈旧。</li>
+<li><strong>schema 描述里别硬编码跨工具引用。</strong> 别让一个工具的 schema 提别工具集的工具名(可能不可用导致模型幻觉调用)。需要时在 <code>get_tool_definitions()</code> 动态加。</li>
+<li><strong>网关有两道消息守卫,审批/控制命令须绕过两者。</strong> base 适配器把消息排进 <code>_pending_messages</code>;网关 runner 拦截 /stop、/new、/queue、/status、/approve、/deny。须到达 runner 的新命令须绕过两道并内联派发。</li>
+<li><strong>陈旧分支的 squash 合并会悄悄回滚近期修复。</strong> squash 前确保分支与 main 同步,合并后用 <code>git diff HEAD~1..HEAD</code> 验证,意外删除是红旗。</li>
+<li><strong>别在无端到端验证下接线死代码。</strong> 把未用模块接进活路径前,用真实 import 对临时 HERMES_HOME 端到端测真实解析链。</li>
+<li><strong>测试不得写 <code>~/.hermes/</code>。</strong> <code>conftest.py</code> 的 <code>_isolate_hermes_home</code> autouse fixture 重定向到临时目录。profile 测试还须 mock <code>Path.home()</code>。</li>
+</ul>
+
+<h2 id="test">测试</h2>
+<div class="box warn"><strong>始终用 <code>scripts/run_tests.sh</code></strong>——别直接调 pytest。脚本强制与 CI 一致的环境(清空凭证变量、TZ=UTC、LANG=C.UTF-8、<code>-n auto</code> xdist、子进程隔离插件)。在有 API key 的多核机上直接 pytest 会与 CI 漂移。</div>
+<pre><code>scripts/run_tests.sh                                  # 全量,CI 对齐
+scripts/run_tests.sh tests/gateway/                   # 单目录
+scripts/run_tests.sh tests/agent/test_foo.py::test_x  # 单测
+scripts/run_tests.sh -v --tb=long                     # 透传 pytest 标志
+scripts/run_tests.sh --no-isolate tests/foo/          # 关子进程隔离(更快,调试用)</code></pre>
+<h4>每测子进程隔离</h4>
+<p>每个测试经 <code>tests/_isolate_plugin.py</code> 在新 spawn 的 Python 子进程跑。模块级 dict/set 与 ContextVar 不会从一个测试泄漏到下一个。用 <code>multiprocessing.get_context("spawn")</code>(Linux/macOS/Windows 通用)。每测开销 ~0.5–1.0s,xdist 摊销。<code>isolate_timeout</code> 每测 30s 上限。<code>--no-isolate</code> 关闭。</p>
+<table>
+<tr><th></th><th>无 wrapper</th><th>有 wrapper</th></tr>
+<tr><td>提供商 API key</td><td>你环境里的</td><td>全部清空</td></tr>
+<tr><td>HOME / ~/.hermes/</td><td>你的真实配置</td><td>每测临时目录</td></tr>
+<tr><td>时区</td><td>本地</td><td>UTC</td></tr>
+<tr><td>locale</td><td>任意</td><td>C.UTF-8</td></tr>
+</table>
+<h4>别写变更探测式测试</h4>
+<p>一个测试若在<strong>预期会变</strong>的数据(模型目录、配置版本号、枚举计数、硬编码模型列表)更新时失败,它就是变更探测器,只会让例行更新破坏 CI。</p>
+<pre><code># 别写:目录快照——每次模型发布就坏
+assert "gemini-2.5-pro" in _PROVIDER_MODELS["gemini"]
+assert DEFAULT_CONFIG["_config_version"] == 21
+
+# 要写:行为/不变量
+assert "gemini" in _PROVIDER_MODELS
+assert len(_PROVIDER_MODELS["gemini"]) &gt;= 1
+assert raw["_config_version"] == DEFAULT_CONFIG["_config_version"]
+for m in _PROVIDER_MODELS["huggingface"]:
+    assert m.lower() in DEFAULT_CONTEXT_LENGTHS_LOWER</code></pre>
+<p>规则:测试若读起来像当前数据快照,删掉;若读起来像两份数据如何关联的契约,保留。推改动前跑全量。</p>
+
+<footer>完整中文版 · 译自 hermes-agent/AGENTS.md · 仅供本机学习,放置于 project-analysis/</footer>
+</main>
+</div>
+<script src="vscode-links.js"></script>
+<script>
+  // 阅读进度条
+  const bar = document.getElementById('progress');
+  const onScroll = () => {
+    const h = document.documentElement;
+    const sc = h.scrollTop || document.body.scrollTop;
+    const max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (sc / max) * 100 : 0) + '%';
+  };
+  document.addEventListener('scroll', onScroll, { passive:true });
+  onScroll();
+
+  // 导航高亮当前章节
+  const links = [...document.querySelectorAll('nav a')];
+  const map = new Map();
+  links.forEach(a => { const id = a.getAttribute('href').slice(1); const el = document.getElementById(id); if (el) map.set(el, a); });
+  const targets = [...map.keys()];
+  const spy = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = map.get(e.target);
+        if (a) { a.classList.add('active'); a.scrollIntoView({ block:'nearest' }); }
+      }
+    });
+  }, { rootMargin:'0px 0px -75% 0px', threshold:0 });
+  targets.forEach(t => spy.observe(t));
+</script>
+</body>
+</html>

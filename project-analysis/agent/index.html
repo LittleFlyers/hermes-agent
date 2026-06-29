@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 核心循环 · 模块导览</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+<a class="back" href="../index.html">返回架构总览</a>
+
+<div class="hero">
+  <span class="badge">模块 1 · Agent 核心循环</span>
+  <h1>Agent 核心循环</h1>
+  <div class="sub">整个项目的心脏。一条用户消息进来,如何驱动「调用模型 → 执行工具 → 再调用模型」的多轮循环,直到产出最终答复。本模块拆成 5 篇逐层深入,建议按顺序读。</div>
+</div>
+
+<h2 id="map">这块代码在哪</h2>
+<p>核心循环的代码并不在一个文件里,而是「一个薄入口 + 一个真正的实现 + 若干被抽出的协作模块」:</p>
+<table>
+<tr><th>文件</th><th>角色</th></tr>
+<tr><td><code>run_agent.py</code></td><td><code>AIAgent.run_conversation()</code> / <code>chat()</code> —— 对外的<strong>薄入口</strong>,转发到真正的实现</td></tr>
+<tr><td><code>agent/conversation_loop.py</code></td><td><strong>真正的主循环</strong>:准备 → while 循环 → 收尾,本模块的主角</td></tr>
+<tr><td><code>agent/turn_context.py</code></td><td>把「每轮一次」的准备工作(<code>build_turn_context</code>)从循环里抽出来</td></tr>
+<tr><td><code>agent/tool_executor.py</code></td><td>工具调用的并发 / 串行执行</td></tr>
+<tr><td><code>agent/iteration_budget.py</code></td><td>迭代预算,循环的安全阀</td></tr>
+<tr><td><code>agent/turn_finalizer.py</code></td><td>收尾:持久化、后置钩子、后台复盘</td></tr>
+</table>
+<div class="box tip">阅读策略:<code>run_agent.py</code> 有 ~12k 行,别从头读。本模块只追 <code>run_conversation()</code> 这一条主线;它在 <code>run_agent.py</code> 里只是一个转发函数,真身在 <code>agent/conversation_loop.py</code>。</div>
+
+<h2 id="bigpicture">一句话全貌</h2>
+<blockquote><code>run_conversation()</code> = <strong>一次准备</strong>(建好 system prompt、压缩、落库)+ <strong>一个 while 循环</strong>(反复「问模型 → 跑工具 → 回灌结果」)+ <strong>一次收尾</strong>(落库、钩子、后台复盘)。循环用<strong>迭代预算</strong>和 <code>max_iterations</code> 当安全阀,用<strong>中断标志</strong>响应 /stop。</blockquote>
+
+<h2 id="docs">本模块文档</h2>
+<div class="toc">
+  <a href="01-entry-setup.html">
+    <div class="n">1</div>
+    <div class="tc-body">
+      <div class="tc-title">入口与准备阶段</div>
+      <div class="tc-desc">从 chat() 到 run_conversation();build_turn_context 一次性做完 system prompt 恢复、压缩、落库、记忆预取。</div>
+      <div class="tc-files">run_agent.py · conversation_loop.py · turn_context.py</div>
+    </div>
+  </a>
+  <a href="02-main-loop.html">
+    <div class="n">2</div>
+    <div class="tc-body">
+      <div class="tc-title">主循环机制</div>
+      <div class="tc-desc">while 条件、迭代预算与 grace 调用、中断检查、step_callback —— 循环如何转、如何安全退出。</div>
+      <div class="tc-files">conversation_loop.py · iteration_budget.py</div>
+    </div>
+  </a>
+  <a href="03-llm-call.html">
+    <div class="n">3</div>
+    <div class="tc-body">
+      <div class="tc-title">调用模型</div>
+      <div class="tc-desc">发请求前对消息做的一切:缓存断点、清洗、KV-cache 友好的规范化、失败重试与故障转移。</div>
+      <div class="tc-files">conversation_loop.py · prompt_caching.py · chat_completion_helpers.py</div>
+    </div>
+  </a>
+  <a href="04-tool-execution.html">
+    <div class="n">4</div>
+    <div class="tc-body">
+      <div class="tc-title">工具执行</div>
+      <div class="tc-desc">拿到 tool_calls 后:并发 vs 串行、handle_function_call 分发、结果回灌、审批与守卫。</div>
+      <div class="tc-files">tool_executor.py · model_tools.py · tools/registry.py</div>
+    </div>
+  </a>
+  <a href="05-finalize.html">
+    <div class="n">5</div>
+    <div class="tc-body">
+      <div class="tc-title">收尾阶段</div>
+      <div class="tc-desc">循环结束后:持久化轮次、post 钩子、后台记忆/技能复盘、返回结果字典。</div>
+      <div class="tc-files">turn_finalizer.py · conversation_loop.py</div>
+    </div>
+  </a>
+</div>
+
+<div class="docnav">
+  <a href="../index.html">
+    <div class="label">上一级</div>
+    <div class="title">架构总览</div>
+  </a>
+  <a class="next" href="01-entry-setup.html">
+    <div class="label">开始第一篇</div>
+    <div class="title">入口与准备阶段 →</div>
+  </a>
+</div>
+
+<footer>Agent 核心循环 · 模块导览 · project-analysis/agent/ · 仅供本机学习</footer>
+</div>
+<script src="../vscode-links.js"></script>
+<script>
+  const bar = document.getElementById('progress');
+  const onScroll = () => { const h=document.documentElement; const sc=h.scrollTop||document.body.scrollTop;
+    const max=h.scrollHeight-h.clientHeight; bar.style.width=(max>0?(sc/max)*100:0)+'%'; };
+  document.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+</script>
+</body>
+</html>

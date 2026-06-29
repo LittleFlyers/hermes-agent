@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>04 · 工具执行 · Agent 核心循环</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+<a class="back" href="index.html">返回模块导览</a>
+
+<div class="hero">
+  <span class="badge">第 4 篇 / 共 5 篇</span>
+  <h1>工具执行</h1>
+  <div class="sub">模型返回 tool_calls 后,Hermes 怎么把这些「我要调工具」变成真实执行,再把结果喂回去?这一篇拆工具执行的完整流水线:并发还是串行、每个调用过哪些关卡、结果如何回灌。</div>
+</div>
+
+<h2 id="branch">分支:有工具就执行,没工具就收尾</h2>
+<pre><code>response = client.chat.completions.create(...)   # 第 3 篇
+if assistant_message.tool_calls:
+    agent._execute_tool_calls_concurrent(assistant_message, messages, ...)
+    # 或 _execute_tool_calls_sequential(...)
+    continue                          # 回到循环顶部,带着工具结果再问模型
+else:
+    final_response = assistant_message.content   # 纯文本 → 第 5 篇收尾
+</code></pre>
+<div class="filehint">agent/conversation_loop.py → agent/tool_executor.py</div>
+<p>两个执行函数都是 <code>run_agent.py</code> 上的薄转发,真身在 <code>agent/tool_executor.py</code>:</p>
+<ul>
+<li><code>execute_tool_calls_concurrent</code> —— 线程池并发执行,<strong>结果按原始顺序收集</strong>再 append。</li>
+<li><code>execute_tool_calls_sequential</code> —— 逐个串行执行。</li>
+</ul>
+<div class="box tip">为什么结果要「按原始顺序」?因为 API 要求 tool 结果的顺序对应 assistant 发出的 tool_calls 顺序。并发执行打乱了完成时间,但收集时必须还原成原序,否则破坏消息结构(角色交替铁律)。</div>
+
+<h2 id="preflight">执行前:一次性中断预检</h2>
+<pre><code>if agent._interrupt_requested:
+    for tc in tool_calls:
+        messages.append(make_tool_result_message(
+            tc.function.name,
+            "[Tool execution cancelled — 被用户中断]",
+            tc.id))
+        _flush_session_db_after_tool_progress(...)   # 落库
+    return
+</code></pre>
+<p>如果用户在模型返回后、工具执行前按了中断:<strong>不执行任何工具</strong>,而是给每个 tool_call 都补一条「已取消」结果消息(保持结构合法),落库后直接返回。</p>
+
+<h2 id="pipeline">每个工具调用过的关卡</h2>
+<p>对 <code>tool_calls</code> 里的每一个,执行前都要先解析参数、再依次过几道关卡。任意一关拦下,就用「拦截结果」代替真实执行:</p>
+<ol class="steps">
+  <li>
+    <h4>解析参数 + 重置 nudge 计数</h4>
+    <p>取出 <code>function_name</code> 和参数。若调的是 <code>memory</code> 工具,把 <code>_turns_since_memory</code> 清零(刚复盘过,不必再提醒)。</p>
+  </li>
+  <li>
+    <h4>越权检查(out-of-scope)</h4>
+    <p>若这个工具不在本会话授予的工具集里(子 agent、kanban worker、受限网关会话),<strong>在任何钩子/守卫之前就拒绝</strong>,并发一条 post_tool_call 终态钩子记录。</p>
+  </li>
+  <li>
+    <h4>pre_tool_call 插件钩子</h4>
+    <p class="where">hermes_cli.plugins · pre_tool_call</p>
+    <p>插件可在执行前拦截。被拦则取 <code>get_pre_tool_call_block_message()</code> 作为结果,不执行真实工具。</p>
+  </li>
+  <li>
+    <h4>工具守卫(guardrail)</h4>
+    <p class="where">agent._tool_guardrails.before_call(name, args)</p>
+    <p>守卫策略判断是否放行。不放行则生成 <code>guardrail_block_result</code>,标记 <code>blocked_by_guardrail=True</code>,发终态钩子(error_type="guardrail_block")。</p>
+  </li>
+  <li>
+    <h4>分发执行</h4>
+    <p class="where">model_tools.handle_function_call(name, args, ...) → tools/registry.py</p>
+    <p>过了前面所有关卡,才真正分发到工具注册表执行(终端、文件、网页…)。结果是 <strong>JSON 字符串</strong>。这一步的细节属于「工具系统」模块,本模块只需知道它是落点。</p>
+  </li>
+  <li>
+    <h4>审批 / sudo 回调</h4>
+    <p>需要用户批准的工具(危险命令、写操作)在这里通过线程本地回调请求批准。</p>
+  </li>
+  <li>
+    <h4>post_tool_call 钩子</h4>
+    <p>执行后发出后置钩子,供插件观察/记录,以及网关推送工具完成事件。</p>
+  </li>
+  <li>
+    <h4>按原序回灌结果</h4>
+    <p class="where">messages.append(make_tool_result_message(name, result, tool_call_id))</p>
+    <p>把结果包成 <code>{"role":"tool", "tool_call_id":..., "content":...}</code> append 进 messages,<strong>顺序对齐</strong>原始 tool_calls。</p>
+  </li>
+  <li>
+    <h4>工具进度落库</h4>
+    <p class="where">_flush_session_db_after_tool_progress(...)</p>
+    <p>每执行完一个工具就刷一次 SQLite,保证长工具链中途崩溃也能恢复到最近进度。</p>
+  </li>
+</ol>
+
+<h2 id="order">并发执行如何保证顺序</h2>
+<p><code>execute_tool_calls_concurrent</code> 的做法是:先把所有调用<strong>解析 + 过关卡</strong>(<code>parsed_calls</code> 列表,保留原始索引),再用线程池并发跑真实执行,最后<strong>按原索引</strong>把结果 append。所以:</p>
+<table>
+<tr><th>阶段</th><th>是否并发</th></tr>
+<tr><td>解析参数 + 钩子/守卫前置检查</td><td>串行(保证确定性)</td></tr>
+<tr><td>真实工具执行</td><td>并发(线程池)</td></tr>
+<tr><td>结果回灌 messages</td><td>按原始顺序串行 append</td></tr>
+</table>
+
+<h2 id="loopback">回灌后:带着结果再问一次</h2>
+<p>所有工具结果 append 进 <code>messages</code> 后,执行函数返回,主循环 <code>continue</code> 回到顶部。下一圈第 3 篇的清洗会把这些新增的 tool 消息一起发给模型——于是模型「看到」了工具结果,继续推理。这就是多轮工具调用能连续进行的根本。</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+    A[模型返回 tool_calls] --> B[解析 + 过关卡<br/>串行]
+    B --> C[线程池并发执行]
+    C --> D[按原序回灌 messages]
+    D --> E[每个工具后落库]
+    E --> F[continue 回循环顶]
+    F --> G[下一圈带工具结果再问模型]
+</pre>
+</div>
+
+<h2 id="takeaway">本篇要点</h2>
+<div class="box">
+<ul>
+<li>有 tool_calls 就执行并 <code>continue</code>;纯文本则进收尾。</li>
+<li>真实执行可<strong>并发</strong>,但结果必须<strong>按原序回灌</strong>,守住角色交替铁律。</li>
+<li>每个调用执行前过四道关:<strong>越权 → pre 钩子 → 守卫 → 分发</strong>。</li>
+<li>真正的执行落点是 <code>handle_function_call → registry</code>(属工具系统模块)。</li>
+<li>每个工具执行后<strong>立即落库</strong>,长工具链也能崩溃恢复。</li>
+</ul>
+</div>
+
+<div class="docnav">
+  <a href="03-llm-call.html">
+    <div class="label">上一篇</div>
+    <div class="title">← 调用模型</div>
+  </a>
+  <a class="next" href="05-finalize.html">
+    <div class="label">下一篇</div>
+    <div class="title">收尾阶段 →</div>
+  </a>
+</div>
+
+<footer>04 · 工具执行 · Agent 核心循环 · 仅供本机学习</footer>
+</div>
+<script src="../vscode-links.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  try { mermaid.initialize({ startOnLoad:true, theme: dark?'dark':'base',
+    themeVariables: dark?{}:{ primaryColor:'#f5edd6', primaryBorderColor:'#b8860b', primaryTextColor:'#21252b',
+      lineColor:'#b8860b', secondaryColor:'#fffdf6', tertiaryColor:'#fff8c5' } }); } catch(e){}
+  const bar = document.getElementById('progress');
+  const onScroll = () => { const h=document.documentElement; const sc=h.scrollTop||document.body.scrollTop;
+    const max=h.scrollHeight-h.clientHeight; bar.style.width=(max>0?(sc/max)*100:0)+'%'; };
+  document.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+</script>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05 · 收尾阶段 · Agent 核心循环</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="progress"></div>
+<div class="container">
+<a class="back" href="index.html">返回模块导览</a>
+
+<div class="hero">
+  <span class="badge">第 5 篇 / 共 5 篇</span>
+  <h1>收尾阶段</h1>
+  <div class="sub">循环跳出后(拿到答复、被中断、或预算耗尽),还要做一连串收尾:落库、转换输出、组装结果字典、安排后台复盘。这些全集中在 <code>finalize_turn</code>。</div>
+</div>
+
+<h2 id="where">收尾的入口</h2>
+<p>循环结束后,<code>run_conversation</code> 把一切交给一个函数,它的返回值就是整个 <code>run_conversation</code> 的返回值:</p>
+<pre><code># agent/conversation_loop.py(循环之后)
+result = finalize_turn(agent, final_response, messages, ...,
+                       _should_review_memory=..., interrupted=..., ...)
+return result
+</code></pre>
+<div class="filehint">agent/conversation_loop.py → agent/turn_finalizer.py · finalize_turn()</div>
+<div class="box tip"><code>finalize_turn</code> 是<strong>同步、单一返回</strong>的(没有 await、没有提前 return),刻意镜像它替换掉的那段内联代码。</div>
+
+<h2 id="steps">收尾都做了什么(按真实顺序)</h2>
+<ol class="steps">
+  <li>
+    <h4>没答复?先处理「迭代耗尽」</h4>
+    <p class="where">if final_response is None and 预算/迭代耗尽: _handle_max_iterations(...)</p>
+    <p>如果循环跑完了却没拿到 <code>final_response</code>(被工具循环占满),调 <code>_handle_max_iterations</code> 生成一段总结作为答复,而不是返回空。</p>
+  </li>
+  <li>
+    <h4>容错收尾区(关键设计)</h4>
+    <p>轨迹保存、资源拆除、会话落库都是<strong>可能抛异常</strong>的操作(SQLite 写入等)。它们被包在一个区域里,任何一个抛错都<strong>收集进 <code>_cleanup_errors</code> 而非崩溃</strong>——保证用户等待的 <code>final_response</code> 一定能返回(#8049)。</p>
+  </li>
+  <li>
+    <h4>收尾被中断的工具序列</h4>
+    <p class="where">close_interrupted_tool_sequence(messages, final_response)</p>
+    <p>若中途被中断,可能留下「有 tool_call 但没 tool 结果」的悬空结构。这里补齐,避免落库出不合法的消息序列。</p>
+  </li>
+  <li>
+    <h4>持久化会话</h4>
+    <p class="where">agent._persist_session(messages, conversation_history)</p>
+    <p>把完整一轮写入 JSON 日志 + SQLite。这是私有重试之后的最终落库。</p>
+  </li>
+  <li>
+    <h4>追加运行时页脚</h4>
+    <p>若有答复且未被中断,可能在末尾追加一段运行时页脚(footer)。</p>
+  </li>
+  <li>
+    <h4>transform_llm_output 插件钩子</h4>
+    <p class="where">hermes_cli.plugins · transform_llm_output</p>
+    <p>插件可在返回前改写答复文本。<strong>第一个返回非空字符串的钩子生效</strong>,返回 None/空则保持原文。</p>
+  </li>
+  <li>
+    <h4>post_llm_call 插件钩子</h4>
+    <p class="where">hermes_cli.plugins · post_llm_call</p>
+    <p>本轮工具循环结束后触发一次,插件常用它把对话数据同步到外部记忆系统。</p>
+  </li>
+  <li>
+    <h4>提取本轮 reasoning</h4>
+    <p>从后往前找最近一条非空 <code>reasoning</code>,<strong>但遇到本轮起始的 user 消息就停</strong>——绝不跨进上一轮,避免 UI 推理框显示陈旧内容(#17055)。</p>
+  </li>
+  <li>
+    <h4>组装结果字典</h4>
+    <p>把所有东西打包成 <code>result</code>(下节详列)。</p>
+  </li>
+  <li>
+    <h4>清中断状态、清流回调</h4>
+    <p class="where">agent.clear_interrupt();agent._stream_callback = None</p>
+    <p>清掉中断标志和流式回调,防止泄漏到下一次调用。</p>
+  </li>
+  <li>
+    <h4>判断是否该复盘技能</h4>
+    <p class="where">_should_review_skills(基于本轮 _iters_since_skill)</p>
+    <p>本轮用了多少工具迭代,决定是否到了提醒复盘技能的周期。</p>
+  </li>
+  <li>
+    <h4>同步外部记忆 + 排下次预取</h4>
+    <p class="where">agent._sync_external_memory_for_turn(...)</p>
+    <p>把完成的这一轮同步给外部记忆提供商,并排队下一次预取。</p>
+  </li>
+  <li>
+    <h4>安排后台复盘(不阻塞返回)</h4>
+    <p class="where">agent._spawn_background_review(...)</p>
+    <p>若需复盘记忆或技能,<strong>在答复交付之后</strong>才后台跑——绝不与用户任务争抢模型注意力。尽力而为,失败不影响主流程。</p>
+  </li>
+</ol>
+
+<h2 id="result">返回的结果字典</h2>
+<p><code>finalize_turn</code> 返回的 <code>result</code> 远不止 <code>final_response</code>,还带了一整轮的<strong>元数据与计量</strong>:</p>
+<pre><code>{
+  "final_response": ...,        # 最终答复文本
+  "last_reasoning": ...,        # 本轮推理(供 UI 推理框)
+  "messages": [...],            # 完整消息历史
+  "api_calls": N,               # 本轮发起的 API 调用数
+  "completed": bool,            # 是否正常完成
+  "interrupted": bool,          # 是否被中断
+  "failed": bool,
+  "turn_exit_reason": "...",    # 循环为何结束(见第 2 篇)
+  "model": ..., "provider": ..., "base_url": ...,
+  # ── 计量(整段会话累计)──
+  "input_tokens": ..., "output_tokens": ...,
+  "cache_read_tokens": ..., "cache_write_tokens": ...,
+  "reasoning_tokens": ..., "total_tokens": ...,
+  "estimated_cost_usd": ..., "cost_status": ..., "cost_source": ...,
+  "session_id": ...,
+}
+</code></pre>
+<div class="filehint">agent/turn_finalizer.py · result 字典</div>
+<p>另外几个条件字段:守卫拦停时带 <code>guardrail</code>;收尾有异常时带 <code>cleanup_errors</code>;若答复后才到的 <code>/steer</code> 没处可塞,带 <code>pending_steer</code> 让调用方作为下一轮交付。</p>
+
+<h2 id="notend">注意:这里不结束会话</h2>
+<div class="box warn">收尾<strong>不</strong>调用记忆提供商的 <code>on_session_end()</code> / <code>shutdown_all()</code>。因为多轮会话里 <code>run_conversation()</code> 每条用户消息都会被调一次,每轮都关闭会杀死提供商,导致第二条消息没法用。真正的会话结束清理交给 CLI(atexit / /reset)和网关(会话过期 / _reset_session)。</p></div>
+
+<h2 id="fulltrip">回到全貌</h2>
+<p>至此一个请求走完:</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+    A[准备阶段<br/>第 1 篇] --> B[while 循环<br/>第 2 篇]
+    B --> C[调模型<br/>第 3 篇]
+    C --> D{tool_calls?}
+    D -- 是 --> E[执行工具<br/>第 4 篇]
+    E --> B
+    D -- 否 --> F[finalize_turn<br/>第 5 篇]
+    F --> G[返回 result 字典]
+</pre>
+</div>
+
+<h2 id="takeaway">本篇要点</h2>
+<div class="box">
+<ul>
+<li>收尾全在 <code>finalize_turn</code>:落库、输出转换、组装结果、安排复盘。</li>
+<li>收尾区<strong>容错</strong>:任何清理异常都收集进 <code>cleanup_errors</code>,绝不吞掉用户的答复。</li>
+<li>返回的是<strong>富结果字典</strong>:答复 + 推理 + 消息 + token 计量 + 成本 + 退出原因。</li>
+<li>后台记忆/技能复盘<strong>在答复之后</strong>才跑,不抢模型。</li>
+<li>这里<strong>不结束会话</strong>,多轮对话靠 CLI / 网关在真正结束时清理。</li>
+</ul>
+</div>
+
+<div class="docnav">
+  <a href="04-tool-execution.html">
+    <div class="label">上一篇</div>
+    <div class="title">← 工具执行</div>
+  </a>
+  <a class="next" href="index.html">
+    <div class="label">读完了</div>
+    <div class="title">返回模块导览 →</div>
+  </a>
+</div>
+
+<footer>05 · 收尾阶段 · Agent 核心循环 · 仅供本机学习</footer>
+</div>
+<script src="../vscode-links.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  try { mermaid.initialize({ startOnLoad:true, theme: dark?'dark':'base',
+    themeVariables: dark?{}:{ primaryColor:'#f5edd6', primaryBorderColor:'#b8860b', primaryTextColor:'#21252b',
+      lineColor:'#b8860b', secondaryColor:'#fffdf6', tertiaryColor:'#fff8c5' } }); } catch(e){}
+  const bar = document.getElementById('progress');
+  const onScroll = () => { const h=document.documentElement; const sc=h.scrollTop||document.body.scrollTop;
+    const max=h.scrollHeight-h.clientHeight; bar.style.width=(max>0?(sc/max)*100:0)+'%'; };
+  document.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+</script>
+</body>
+</html>
